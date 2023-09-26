@@ -28,7 +28,9 @@ namespace ChurchScreen
         public Configuration config;
         public ShowScreen sh;
         public ListViewExample lve;
-        public int ScreenWidth;        
+        public int ScreenWidth;
+        public bool IsNewSongLoaded { get; set; } = false;
+
 
         public bool SongSaved = true;//сохранена ли песня перед выходом?
 
@@ -513,14 +515,36 @@ namespace ChurchScreen
                 if (!config.AlwaysServiceMode)
                 servicePanel.Visibility = System.Windows.Visibility.Hidden;
             }
-            this.previewViewer.Document = song.NextBlock();            
+            this.previewViewer.Document = song.FirstBlock();            
             currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
             coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
+            IsNewSongLoaded = true;
+            UpdatePreviewFontSize();
         }
+
+        private void UpdatePreviewFontSize()
+        {
+            if(song == null) return;
+            if (song.BlocksCount == 0) return;
+
+            // Получите текущий размер шрифта основного экрана
+            double mainFontSize = song.BlockFontSize;
+
+            // Вычислите пропорциональный размер шрифта для previewViewer
+            double scaleFactor = 320.0 / sh.Width; // 320 - это ширина previewViewer
+            double previewFontSize = mainFontSize * scaleFactor;
+
+            // Установите новый размер шрифта для всех блоков в previewViewer
+            foreach (Block block in previewViewer.Document.Blocks)
+            {
+                block.FontSize = previewFontSize;
+            }
+        }
+
 
         private void HideDocument_Click(object sender, RoutedEventArgs e)
         {
-            sh.docViewer.Document = SongDocument.cleanDocument();
+            sh.docViewer.Document = SongDocument.CleanDocument();
             sh.docViewer.Document.FontSize = 1;
             this.songGrid.DataContext = null;
         }
@@ -568,16 +592,26 @@ namespace ChurchScreen
                 this.songGrid.DataContext = null;
                 return;
             }
-            if (sh.docViewer.Document.FontSize != 1)
-            {                
-                NextCoopletButton_Click(null, null);
-                ShowButton_Click_1(null, null);            
+
+            if (IsNewSongLoaded)
+            {
+                ShowButton_Click_1(null, null);
+                IsNewSongLoaded = false; // Сбросьте флаг после показа первого блока
             }
             else
             {
-                ShowButton_Click_1(null, null);
-            }            
+                if (sh.docViewer.Document.FontSize != 1)
+                {
+                    NextCoopletButton_Click(null, null);
+                    ShowButton_Click_1(null, null);
+                }
+                else
+                {
+                    ShowButton_Click_1(null, null);
+                }
+            }
         }
+
 
         private void increaseFontButton_Click(object sender, RoutedEventArgs e)
         {
@@ -593,6 +627,7 @@ namespace ChurchScreen
                     }
                 }
             }
+            UpdatePreviewFontSize();
         }
 
         private void decreaseFontButton_Click(object sender, RoutedEventArgs e)
@@ -609,6 +644,7 @@ namespace ChurchScreen
                     }
                 }
             }
+            UpdatePreviewFontSize();
         }
 
         private void saveFileButton_Click(object sender, RoutedEventArgs e)
@@ -632,6 +668,7 @@ namespace ChurchScreen
                     b.FontSize = song.BlockFontSize;
                 }
             }
+            UpdatePreviewFontSize();
         }
 
         private void fileNameTextBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
