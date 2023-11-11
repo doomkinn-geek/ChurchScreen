@@ -70,7 +70,7 @@ namespace ChurchScreen
 
         private string GetSongText(string filePath)
         {
-            var song = new SongDocument(filePath, 0);
+            var song = new SongDocument(filePath, 0, 200);
             if (song.coopletList.Count > 0)
             {
                 var songText = song.coopletList[0];

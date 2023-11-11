@@ -75,14 +75,6 @@ namespace ChurchScreen
             }
 
             if (backgroundListView.Items.Count != 0) backgroundListView.SelectedIndex = 0;
-
-            //запись xml файла
-            /*var b = new Configuration { FontSizeStep = 5, AlwaysServiceMode = false, SaveAsk = true};
-            var writer = new System.Xml.Serialization.XmlSerializer(typeof(Configuration));
-            var wfile = new System.IO.StreamWriter(Environment.CurrentDirectory + "\\tmp.xml");
-            writer.Serialize(wfile, b);
-            wfile.Close();*/            
-
             sh = new ShowScreen();
 
             if (!config.UseOneMonitor)
@@ -477,7 +469,20 @@ namespace ChurchScreen
                     eButton_Click(null, null);
                     break;
                 }  
-            } 
+            }
+            // Проверка на комбинацию Ctrl + P
+            if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                ToggleServicePanelVisibility();
+            }
+        }
+
+        private void ToggleServicePanelVisibility()
+        {
+            if (servicePanel.Visibility == System.Windows.Visibility.Hidden)
+                servicePanel.Visibility = System.Windows.Visibility.Visible;
+            else
+                servicePanel.Visibility = System.Windows.Visibility.Hidden;
         }
 
         private void ExitButton_Click(object sender, RoutedEventArgs e)
@@ -498,7 +503,7 @@ namespace ChurchScreen
                     saveFileButton_Click(null, null);
             }            
             fileNameTextBox.Text = fileNameTextBox.Text.PadLeft(4, '0');
-            song = new SongDocument(fileNameTextBox.Text, ScreenWidth);
+            song = new SongDocument(fileNameTextBox.Text, ScreenWidth, config.FontSizeForSplit);
             this.songGrid.DataContext = sh.docViewer.Document;
             if (song.ServiseMode)
             {
@@ -518,21 +523,28 @@ namespace ChurchScreen
             this.previewViewer.Document = song.FirstBlock();            
             currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
             coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-            IsNewSongLoaded = true;
+            IsNewSongLoaded = true;            
             UpdatePreviewFontSize();
         }
 
+        private double GetPreviewScaleFactor()
+        {
+            return 320.0 / ScreenWidth; // Масштабирование на основе ширины экрана
+        }
+
+
         private void UpdatePreviewFontSize()
         {
-            if(song == null) return;
+            if (song == null || previewViewer == null) return;
             if (song.BlocksCount == 0) return;
 
-            // Получите текущий размер шрифта основного экрана
-            double mainFontSize = song.BlockFontSize;
+            double scaleFactor = GetPreviewScaleFactor();
 
-            // Вычислите пропорциональный размер шрифта для previewViewer
-            double scaleFactor = 320.0 / sh.Width; // 320 - это ширина previewViewer
-            double previewFontSize = mainFontSize * scaleFactor;
+            // Вычислите размер шрифта для превью
+            int previewFontSize = (int)(song.BlockFontSize * scaleFactor);
+
+            // Если размер шрифта превью не изменился, нет необходимости обновлять его
+            //if (previewViewer.Document.Blocks.First().FontSize == previewFontSize) return;
 
             // Установите новый размер шрифта для всех блоков в previewViewer
             foreach (Block block in previewViewer.Document.Blocks)
@@ -540,6 +552,8 @@ namespace ChurchScreen
                 block.FontSize = previewFontSize;
             }
         }
+
+
 
 
         private void HideDocument_Click(object sender, RoutedEventArgs e)
@@ -616,24 +630,24 @@ namespace ChurchScreen
         private void increaseFontButton_Click(object sender, RoutedEventArgs e)
         {
             if (sh.docViewer.Document.Blocks.Count != 0)
-            {
+            {                
                 foreach (Block b in sh.docViewer.Document.Blocks)
                 {
-                    if(b.FontSize < 1000)
+                    if (b.FontSize < 1000)
                         b.FontSize += config.FontSizeStep;
                     if (song != null)
                     {
                         song.BlockFontSize = Convert.ToInt32(b.FontSize);
                     }
                 }
+                UpdatePreviewFontSize();
             }
-            UpdatePreviewFontSize();
         }
 
         private void decreaseFontButton_Click(object sender, RoutedEventArgs e)
         {
             if (sh.docViewer.Document.Blocks.Count != 0)
-            {
+            {                
                 foreach (Block b in sh.docViewer.Document.Blocks)
                 {
                     if (b.FontSize > config.FontSizeStep)
@@ -643,9 +657,10 @@ namespace ChurchScreen
                         song.BlockFontSize = Convert.ToInt32(b.FontSize);
                     }
                 }
+                UpdatePreviewFontSize();
             }
-            UpdatePreviewFontSize();
         }
+
 
         private void saveFileButton_Click(object sender, RoutedEventArgs e)
         {
@@ -667,7 +682,7 @@ namespace ChurchScreen
                     song.BlockFontSize = song.CalculateFont();
                     b.FontSize = song.BlockFontSize;
                 }
-            }
+            }            
             UpdatePreviewFontSize();
         }
 
@@ -762,37 +777,71 @@ namespace ChurchScreen
         {
             sh.mainScreen.Background = null;
         }
-                       
 
-        /*private void Window_MouseDoubleClick_1(object sender, MouseButtonEventArgs e)
-        {            
-            if(sender.GetType() == typeof(System.Windows.Controls.Button)) return;
-            if (servicePanel.Visibility == System.Windows.Visibility.Hidden)
-                servicePanel.Visibility = System.Windows.Visibility.Visible;
-            else
-                servicePanel.Visibility = System.Windows.Visibility.Hidden;
-        } */
-
-        /*private void searchButton_Click_1(object sender, RoutedEventArgs e)
+        private void undoSplitBlocks_Click(object sender, RoutedEventArgs e)
         {
-            if (searchTextBox.Text.Trim() == "") return;
-            foundSong = new FoundSong();
-            string result = foundSong.GetSongFileName(searchTextBox.Text);
-            if (result.Trim() != "")
-            {
-                fileNameTextBox.Text = result;
-                eButton_Click(null, null);
-            }
-            else
-            {
-                System.Windows.MessageBox.Show("Ничего не найдено");
-                return;
-            }
+            if (song == null) return;
+            song.UndoSplitBlocks();
+
+            // Обновляем содержимое docViewer в главном окне
+            sh.docViewer.Document = song.ToMainScreen();
+
+            // Обновляем содержимое previewViewer
+            this.previewViewer.Document = song.FirstBlock();
+
+            // Обновляем номер текущего блока и общее количество блоков
+            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
+            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
+
+            if(song.CurrentBlockNumber != 1)
+                IsNewSongLoaded = true;
+            // Обновляем размер шрифта для превью
+            UpdatePreviewFontSize();
         }
 
-        private void searchTextBox_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        private void splitBlocks_Click(object sender, RoutedEventArgs e)
         {
-            searchButton.IsDefault = true;
-        }*/              
+            if (song == null) return;
+            song.SplitLargeBlocksIfNeeded ();
+
+            // Обновляем содержимое docViewer в главном окне
+            sh.docViewer.Document = song.ToMainScreen();
+
+            // Обновляем содержимое previewViewer
+            this.previewViewer.Document = song.FirstBlock();
+
+            // Обновляем номер текущего блока и общее количество блоков
+            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
+            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
+
+            if (song.CurrentBlockNumber != 1)
+                IsNewSongLoaded = true;
+
+            // Обновляем размер шрифта для превью
+            UpdatePreviewFontSize();
+        }
+
+        private void undoCurrentSplitButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (song == null) return;
+
+            // Вызовите метод UndoSplitForBlock для текущего блока
+            song.UndoSplitForBlock(song.CurrentBlockNumber);
+
+            // Обновляем содержимое docViewer в главном окне
+            sh.docViewer.Document = song.ToMainScreen();
+
+            // Обновляем содержимое previewViewer
+            this.previewViewer.Document = song.CurrentBlock();
+
+            // Обновляем номер текущего блока и общее количество блоков
+            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
+            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
+
+            if (song.CurrentBlockNumber != 1)
+                IsNewSongLoaded = true;
+
+            calculateFontButton_Click(null, null);
+        }
     }
 }

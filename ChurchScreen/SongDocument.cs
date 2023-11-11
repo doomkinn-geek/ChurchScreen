@@ -29,6 +29,7 @@ namespace ChurchScreen
             }
         }
         private int ScreenWidth { get; set; }
+        private int FontSizeForSplit { get; set; }
         public List<string> coopletList { get; private set; }
         private List<int> coopletFontSizeList;
 
@@ -59,9 +60,10 @@ namespace ChurchScreen
         };
 
 
-        public SongDocument(string fileName, int screenWidth)
+        public SongDocument(string fileName, int screenWidth, int fontSizeForSplit)
         {
             Initialize(fileName, screenWidth);
+            FontSizeForSplit = fontSizeForSplit;
         }
 
         private void Initialize(string fileName, int screenWidth)
@@ -104,6 +106,8 @@ namespace ChurchScreen
             {
                 LoadTextAndSplitIntoBlocks(fileData);
             }
+
+            AddEndSymbols(); // Добавить символы "*****" после инициализации и загрузки файла
         }
 
         private void LoadTextAndSplitIntoBlocks(string fileData)
@@ -148,13 +152,12 @@ namespace ChurchScreen
 
             foreach (var rawBlock in blocks)
             {
-                var block = rawBlock.Trim();
+                var block = RemoveTrailingSpaces(rawBlock.Trim());
+                List<int> splitFontSizes;
+                var splitBlocks = SplitBlockIfNecessary(block, out splitFontSizes);
 
-                // Добавляем блок в список.
-                coopletList.Add(block);
-
-                // Рассчитываем размер шрифта для блока и добавляем его в список.
-                coopletFontSizeList.Add(CalculateFont(block));
+                coopletList.AddRange(splitBlocks);
+                coopletFontSizeList.AddRange(splitFontSizes);
             }
 
             // Проверка на соответствие количества блоков и размеров шрифта.
@@ -163,9 +166,6 @@ namespace ChurchScreen
                 ResetSongData();
             }
         }
-
-
-
 
         private string ReadFileContent(string fileName)
         {
@@ -246,34 +246,59 @@ namespace ChurchScreen
             }
         }
 
-
-        private string FormatBlockNumber(int number) => $"@{number:00}$";
-        private string FormatFontSize(string block) => $"#{CalculateFont(block):000}";
-               
-
         public void InsertRefrain()
         {
             if (BlocksCount < 2) return;
 
-            var refrain = coopletList[1];
+            // Удалить символы "*****" из последнего блока перед вставкой припева
+            RemoveEndSymbols();
+
+            // Определение блоков припева
+            List<string> refrainBlocks = new List<string>();
+            if (coopletList[0].EndsWith(" =>"))
+            {
+                refrainBlocks.Add(coopletList[2]);
+                refrainBlocks.Add(coopletList[3]);
+            }
+            else
+            {
+                refrainBlocks.Add(coopletList[1]);
+            }
+
             var updatedBlocks = new List<string>();
             var updatedFonts = new List<int>();
 
-            foreach (var block in coopletList)
+            for (int i = 0; i < coopletList.Count; i++)
             {
-                updatedBlocks.Add(block);
-                updatedBlocks.Add(refrain);
-            }
+                updatedBlocks.Add(coopletList[i]);
+                updatedFonts.Add(coopletFontSizeList[i]);
 
-            foreach (var fontSize in coopletFontSizeList)
-            {
-                updatedFonts.Add(fontSize);
-                updatedFonts.Add(-1);
+                // Если текущий блок заканчивается на " =>", это означает, что это первая часть разбитого куплета.
+                // В этом случае мы пропускаем добавление припева после первой части куплета.
+                if (coopletList[i].EndsWith(" =>"))
+                {
+                    continue;
+                }
+
+                // Если текущий блок не является припевом и следующий блок также не является припевом (или его нет), добавить припев.
+                if (!refrainBlocks.Contains(coopletList[i]) && (i + 1 == coopletList.Count || !refrainBlocks.Contains(coopletList[i + 1])))
+                {
+                    foreach (var refrainBlock in refrainBlocks)
+                    {
+                        updatedBlocks.Add(refrainBlock);
+                        updatedFonts.Add(-1);
+                    }
+                }
             }
 
             coopletList = updatedBlocks;
             coopletFontSizeList = updatedFonts;
+
+            // Добавить символы "*****" обратно в конец песни после вставки припева
+            AddEndSymbols();
         }
+
+
 
         private FlowDocument GetDocument(int number, bool getPreview)
         {
@@ -290,6 +315,12 @@ namespace ChurchScreen
             var block = coopletList[number - 1];
             var fontSize = getPreview ? CalculatePreviewFontSize(block) : coopletFontSizeList[number - 1];
 
+            // Проверка на допустимость значения размера шрифта
+            if (fontSize <= 0)
+            {
+                fontSize = CalculateFont(block); // Рассчитываем размер шрифта, если текущее значение не допустимо
+            }
+
             var paragraph = new Paragraph { FontSize = fontSize };
             foreach (var line in block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
             {
@@ -301,11 +332,25 @@ namespace ChurchScreen
             return document;
         }
 
+        public int CalculatePreviewFontSize(string block)
+        {
+            var mainFontSize = CalculateFont(block);
+            double scaleFactor = 320.0 / ScreenWidth; // Масштабирование на основе ширины экрана
+            return (int)(mainFontSize * scaleFactor);
+        }
+
+
+        public int CalculateFont()
+        {
+            return CalculateFont(coopletList[CurrentBlockNumber - 1]);
+        }
+
         private int CalculateFont(string block)
         {
             if (string.IsNullOrWhiteSpace(block)) return 90;
 
-            var maxLengthStr = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).OrderByDescending(s => s.Length).FirstOrDefault() ?? string.Empty;
+            var lines = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var maxLengthStr = lines.OrderByDescending(s => s.Length).FirstOrDefault() ?? string.Empty;
 
             double weightedLength = 0;
             foreach (char c in maxLengthStr)
@@ -317,22 +362,21 @@ namespace ChurchScreen
             }
 
             var symbCountBold = ScreenWidth * 280 / 1920;
+            var fontSizeByWidth = (int)(12 * symbCountBold / weightedLength);
 
-            return (int)(12 * symbCountBold / weightedLength);
-        }
+            // Высота экрана для соотношения сторон 16:9
+            var screenHeight = ScreenWidth * 9 / 16;
 
-        private int CalculatePreviewFontSize(string block)
-        {
-            var maxLengthStr = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).OrderByDescending(s => s.Length).FirstOrDefault() ?? string.Empty;
+            // Максимальное количество строк, которое может поместиться на экране с учетом расчетного размера шрифта
+            var maxLinesOnScreen = screenHeight / (fontSizeByWidth * 1.5); // 1.5 - это коэффициент, учитывающий интервал между строками
 
-            var strLength = maxLengthStr.Length + maxLengthStr.Count(char.IsUpper) * 0.5;
-            return 12 * 54 / Convert.ToInt32(strLength);
-        }
+            // Если количество строк в блоке превышает максимальное количество строк на экране, корректируем размер шрифта
+            if (lines.Length > maxLinesOnScreen)
+            {
+                fontSizeByWidth = (int)(fontSizeByWidth * maxLinesOnScreen / lines.Length);
+            }
 
-
-        public int CalculateFont()
-        {
-            return CalculateFont(coopletList[CurrentBlockNumber - 1]);
+            return fontSizeByWidth;
         }
 
         public FlowDocument FirstBlock()
@@ -345,6 +389,15 @@ namespace ChurchScreen
 
             // Возвращаем документ для первого блока.
             return GetDocument(myCurrentBlockNumber, true);
+        }
+
+        public FlowDocument CurrentBlock()
+        {
+            // Если нет блоков, возвращаем документ с текстом "<ПУСТО>".
+            if (BlocksCount == 0) return CreateDocumentWithText("<ПУСТО>");
+
+            // Возвращаем документ для первого блока.
+            return GetDocument(CurrentBlockNumber, true);
         }
 
 
@@ -405,5 +458,259 @@ namespace ChurchScreen
         {
             return new FlowDocument();
         }
+
+        private string RemoveTrailingSpaces(string line)
+        {
+            return line.TrimEnd(' ');
+        }
+
+        
+        public void UndoSplitBlocks()
+        {
+            RemoveEndSymbols();
+            var restoredBlocks = new List<string>();
+            var restoredFontSizes = new List<int>();
+
+            for (int i = 0; i < coopletList.Count; i++)
+            {
+                if (coopletList[i].EndsWith(" =>") && i + 1 < coopletList.Count)
+                {
+                    // Объединяем два блока, удаляя " =>" из первой части
+                    var combinedBlock = coopletList[i].TrimEnd(' ', '=', '>') + Environment.NewLine + coopletList[i + 1];
+                    restoredBlocks.Add(combinedBlock);
+
+                    // Пересчитываем размер шрифта для объединенного блока
+                    restoredFontSizes.Add(CalculateFont(combinedBlock));
+
+                    i++; // Пропускаем следующий блок, так как он уже был объединен
+                }
+                else
+                {
+                    restoredBlocks.Add(coopletList[i]);
+                    restoredFontSizes.Add(coopletFontSizeList[i]);
+                }
+            }           
+
+            coopletList = restoredBlocks;
+            coopletFontSizeList = restoredFontSizes;
+            AddEndSymbols();
+        }
+
+        public void UndoSplitForBlock(int blockNumber)
+        {
+            if (blockNumber <= 0 || blockNumber > coopletList.Count)
+                return;
+
+            bool isRefrain = IsRefrainBlock(blockNumber);
+
+            // Если блок заканчивается на " =>", это первая часть разбитого блока
+            if (coopletList[blockNumber - 1].EndsWith(" =>"))
+            {
+                // Объединяем два блока, удаляя " =>" из первой части
+                var combinedBlock = coopletList[blockNumber - 1].TrimEnd(' ', '=', '>') + Environment.NewLine + coopletList[blockNumber];
+                coopletList[blockNumber - 1] = combinedBlock;
+
+                // Удаляем следующий блок, так как он уже был объединен
+                coopletList.RemoveAt(blockNumber);
+                coopletFontSizeList.RemoveAt(blockNumber);
+            }
+
+            // Если блок является припевом, перестраиваем все блоки, которые являются припевами
+            if (isRefrain)
+            {
+                RestoreAllRefrains();
+            }
+        }
+
+        private void RestoreAllRefrains()
+        {
+            List<int> refrainIndices = new List<int>();
+            bool hasEndSymbols = coopletList.Last().EndsWith("* * *");
+
+            // Если последний блок содержит "***", убираем его для корректного сравнения
+            if (hasEndSymbols)
+            {
+                coopletList[coopletList.Count - 1] = coopletList.Last().TrimEnd('*', ' ');
+            }
+
+            for (int i = 0; i < coopletList.Count; i++)
+            {
+                if (IsRefrainBlock(i + 1)) // +1 потому что блоки индексируются с 1
+                {
+                    if (coopletList[i].EndsWith(" =>"))
+                    {
+                        refrainIndices.Add(i);
+                    }
+                }
+            }
+
+            // Восстанавливаем блоки в обратном порядке
+            for (int i = refrainIndices.Count - 1; i >= 0; i--)
+            {
+                int index = refrainIndices[i];
+                var combinedBlock = coopletList[index].TrimEnd(' ', '=', '>') + Environment.NewLine + coopletList[index + 1];
+                coopletList[index] = combinedBlock;
+
+                coopletList.RemoveAt(index + 1);
+                coopletFontSizeList.RemoveAt(index + 1);
+            }
+
+            // Если в конце были символы "***", добавляем их обратно
+            if (hasEndSymbols)
+            {
+                coopletList[coopletList.Count - 1] += "* * *";
+            }
+        }
+
+
+
+
+        private bool IsRefrainBlock(int blockNumber)
+        {
+            if (blockNumber <= 0 || blockNumber > coopletList.Count)
+                return false;
+
+            string block = coopletList[blockNumber - 1];
+            int occurrences = coopletList.Count(b => b == block);
+
+            // Если блок встречается более одного раза и не является частью разбитого блока
+            if (occurrences > 1 && !block.EndsWith(" =>") && (blockNumber == 1 || !coopletList[blockNumber - 2].EndsWith(" =>")))
+            {
+                return true;
+            }
+
+            // Если текущий блок является первой частью разбитого блока и следующий блок также встречается более одного раза
+            if (block.EndsWith(" =>") && blockNumber < coopletList.Count)
+            {
+                string nextBlock = coopletList[blockNumber];
+                int nextOccurrences = coopletList.Count(b => b == nextBlock);
+                if (nextOccurrences > 1)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+
+
+        private List<string> SplitBlockIfNecessary(string block, out List<int> fontSizes)
+        {
+            var result = new List<string>();
+            fontSizes = new List<int>();
+
+            if (CalculateFont(block) < FontSizeForSplit)
+            {
+                var lines = block.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).ToList();
+
+                // Разбиваем слишком длинные строки
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    if (CalculateFont(lines[i]) < FontSizeForSplit)
+                    {
+                        int splitPoint = lines[i].Length / 2;
+
+                        // Ищем ближайший пробел для разделения строки
+                        while (splitPoint < lines[i].Length && lines[i][splitPoint] != ' ')
+                        {
+                            splitPoint++;
+                        }
+
+                        if (splitPoint < lines[i].Length)
+                        {
+                            var firstHalf = lines[i].Substring(0, splitPoint).Trim();
+                            var secondHalf = lines[i].Substring(splitPoint).Trim();
+
+                            lines[i] = firstHalf;
+                            lines.Insert(i + 1, secondHalf);
+                        }
+                    }
+                }
+
+                int mid = lines.Count / 2;
+                var firstPart = string.Join(Environment.NewLine, lines.Take(mid)) + " " + " =>";
+                var secondPart = string.Join(Environment.NewLine, lines.Skip(mid));
+
+                result.Add(firstPart);
+                result.Add(secondPart);
+
+                fontSizes.Add(CalculateFont(firstPart));
+                fontSizes.Add(CalculateFont(secondPart));
+            }
+            else
+            {
+                result.Add(block);
+                fontSizes.Add(CalculateFont(block));
+            }
+
+            return result;
+        }
+
+        public void SplitLargeBlocksIfNeeded()
+        {
+            RemoveEndSymbols(); // Удалить символы "***" перед разбиением
+            // Проверка, были ли блоки уже разбиты
+            if (coopletList.Any(s => s.EndsWith(" =>")))
+            {
+                return; // Если блоки уже были разбиты, выходим из метода
+            }
+
+            var newBlocks = new List<string>();
+            var newFontSizes = new List<int>();
+
+            foreach (var block in coopletList)
+            {
+                if (CalculateFont(block) < FontSizeForSplit)
+                {
+                    List<int> splitFontSizes;
+                    var splitBlocks = SplitBlockIfNecessary(block, out splitFontSizes);
+
+                    newBlocks.AddRange(splitBlocks);
+                    newFontSizes.AddRange(splitFontSizes);
+                }
+                else
+                {
+                    newBlocks.Add(block);
+                    newFontSizes.Add(CalculateFont(block));
+                }
+            }
+
+            coopletList = newBlocks;
+            coopletFontSizeList = newFontSizes;
+            AddEndSymbols(); // Добавить символы "*****" после разбиения
+        }
+
+        private void RemoveEndSymbols()
+        {
+            if (coopletList.Count == 0) return;
+
+            // Получить последний блок
+            var lastBlock = coopletList.Last();
+
+            // Проверить, содержит ли последний блок символы "*****" в конце
+            if (lastBlock.EndsWith("* * *"))
+            {
+                // Удалить символы "*****" из последнего блока
+                coopletList[coopletList.Count - 1] = lastBlock.TrimEnd('*', ' ');
+            }
+        }
+
+
+        private void AddEndSymbols()
+        {
+            if (coopletList.Count == 0) return;
+
+            // Получить последний блок
+            var lastBlock = coopletList.Last();
+
+            // Проверить, содержит ли последний блок символы "*****" в конце
+            if (!lastBlock.EndsWith("* * *"))
+            {
+                // Добавить символы "*****" к последнему блоку
+                coopletList[coopletList.Count - 1] = lastBlock + Environment.NewLine + "* * *";
+            }
+        }
+        
     }
 }
