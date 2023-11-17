@@ -168,6 +168,12 @@ namespace ChurchScreen
                 return;
             }
             sh.mainScreen.Background = null;
+
+            if (IsNewSongLoaded)
+            {
+                IsNewSongLoaded = false; // Сбрасываем флаг
+            }
+            
             sh.docViewer.Document = song.ToMainScreen();
             double a = sh.docViewer.Document.PageHeight;
             sh.docViewer.MaxZoom = 1000;

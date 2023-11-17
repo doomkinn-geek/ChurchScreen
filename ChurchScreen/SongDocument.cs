@@ -307,7 +307,8 @@ namespace ChurchScreen
                 FontFamily = new FontFamily("Arial"),
                 IsOptimalParagraphEnabled = true,
                 IsHyphenationEnabled = true,
-                TextAlignment = TextAlignment.Center
+                TextAlignment = TextAlignment.Center,
+                PagePadding = new Thickness(0, 40, 0, 40) // Установите подходящие значения для вертикального центрирования
             };
 
             if (number <= 0 || number > coopletList.Count) return document;
@@ -326,6 +327,12 @@ namespace ChurchScreen
             {
                 paragraph.Inlines.Add(new Bold(new Run(line)));
                 paragraph.Inlines.Add(new LineBreak());
+            }
+
+            // Удаляем последний LineBreak, который добавляется автоматически
+            if (paragraph.Inlines.LastInline is LineBreak)
+            {
+                paragraph.Inlines.Remove(paragraph.Inlines.LastInline);
             }
 
             document.Blocks.Add(paragraph);
@@ -685,32 +692,25 @@ namespace ChurchScreen
         {
             if (coopletList.Count == 0) return;
 
-            // Получить последний блок
             var lastBlock = coopletList.Last();
 
-            // Проверить, содержит ли последний блок символы "*****" в конце
-            if (lastBlock.EndsWith("* * *"))
-            {
-                // Удалить символы "*****" из последнего блока
-                coopletList[coopletList.Count - 1] = lastBlock.TrimEnd('*', ' ');
-            }
+            // Используем регулярное выражение для удаления всех звездочек в конце блока
+            var modifiedBlock = Regex.Replace(lastBlock, @"\*+\s*$", "").TrimEnd();
+            coopletList[coopletList.Count - 1] = modifiedBlock;
         }
-
 
         private void AddEndSymbols()
         {
             if (coopletList.Count == 0) return;
 
-            // Получить последний блок
             var lastBlock = coopletList.Last();
 
-            // Проверить, содержит ли последний блок символы "*****" в конце
-            if (!lastBlock.EndsWith("* * *"))
+            // Проверяем, содержатся ли в конце блока звездочки (с пробелами или без)
+            if (!Regex.IsMatch(lastBlock, @"\*+\s*$"))
             {
-                // Добавить символы "*****" к последнему блоку
                 coopletList[coopletList.Count - 1] = lastBlock + Environment.NewLine + "* * *";
             }
         }
-        
+
     }
 }
