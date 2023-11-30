@@ -308,7 +308,7 @@ namespace ChurchScreen
                 IsOptimalParagraphEnabled = true,
                 IsHyphenationEnabled = true,
                 TextAlignment = TextAlignment.Center,
-                PagePadding = new Thickness(0, 40, 0, 40) // Установите подходящие значения для вертикального центрирования
+                //PagePadding = new Thickness(0, 40, 0, 40) // Установите подходящие значения для вертикального центрирования
             };
 
             if (number <= 0 || number > coopletList.Count) return document;
