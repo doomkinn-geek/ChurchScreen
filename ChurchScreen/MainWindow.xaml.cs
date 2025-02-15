@@ -1,26 +1,19 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
 using System.Windows.Documents;
+using System.Windows.Forms;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-using System.Windows.Forms;
-using System.IO;
+using System.Xml.Serialization;
 using System.Threading;
 
 namespace ChurchScreen
 {
-    /// <summary>
-    /// Логика взаимодействия для MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
         public SongDocument song;
@@ -29,10 +22,12 @@ namespace ChurchScreen
         public ShowScreen sh;
         public ListViewExample lve;
         public int ScreenWidth;
+
+        // Флаг, указывающий, что только что загрузилась новая песня (чтобы первый NextBlock сразу показывал корректно)
         public bool IsNewSongLoaded { get; set; } = false;
 
-
-        public bool SongSaved = true;//сохранена ли песня перед выходом?
+        // Флаг «сохранена ли песня перед выходом»
+        public bool SongSaved = true;
 
         public MainWindow()
         {
@@ -41,120 +36,107 @@ namespace ChurchScreen
             {
                 if (File.Exists(Environment.CurrentDirectory + "\\settings.xml"))
                 {
-                    //Считывание настроек системы из файла settings.xml
-                    System.Xml.Serialization.XmlSerializer reader =
-                        new System.Xml.Serialization.XmlSerializer(typeof(Configuration));
-                    System.IO.StreamReader file = new System.IO.StreamReader(Environment.CurrentDirectory + "\\settings.xml");
-                    config = (Configuration)reader.Deserialize(file);
-                    file.Close();
+                    var reader = new XmlSerializer(typeof(Configuration));
+                    using (var file = new StreamReader(Environment.CurrentDirectory + "\\settings.xml"))
+                    {
+                        config = (Configuration)reader.Deserialize(file);
+                    }
                 }
                 else
                 {
-                    config = new Configuration { FontSizeStep = 5, AlwaysServiceMode = false, SaveAsk = true, UseOneMonitor = false, StrechFill = 2 };
+                    config = new Configuration();
                 }
             }
-            catch (Exception ex)
+            catch
             {
-                config = new Configuration { FontSizeStep = 5, AlwaysServiceMode = false, SaveAsk = true, UseOneMonitor = false, StrechFill = 2 };
+                // При ошибках парсинга/чтения используем конфигурацию по умолчанию
+                config = new Configuration();
             }
-        }       
+        }
 
         private void Window_Loaded_1(object sender, RoutedEventArgs e)
         {
-            int upperBound;
-
-            // Gets an array of all the screens connected to the system.
             Screen[] screens = Screen.AllScreens;
-            upperBound = screens.GetUpperBound(0);
+            string[] files = Directory.GetFiles("pictures");
 
-            string[] files = System.IO.Directory.GetFiles("pictures");
-
+            // Загрузка списка фоновых изображений
             for (int x = 0; x < files.Length; x++)
             {
-                backgroundListView.Items.Add(new PicturesFileName(files[x]));                
+                backgroundListView.Items.Add(new PicturesFileName(files[x]));
             }
+            if (backgroundListView.Items.Count != 0)
+                backgroundListView.SelectedIndex = 0;
 
-            if (backgroundListView.Items.Count != 0) backgroundListView.SelectedIndex = 0;
             sh = new ShowScreen();
 
-            if (!config.UseOneMonitor)
+            // Настраиваем окно для второго монитора, если их больше одного
+            if (!config.UseOneMonitor && screens.Length > 1)
             {
-                if (screens.Length > 1)
-                {
-                    sh.Left = screens[1].WorkingArea.X;
-                    sh.Top = screens[1].WorkingArea.Y;
-                    sh.Width = screens[1].Bounds.Width;
-                    sh.Height = screens[1].Bounds.Height;
-                    sh.docViewer.Document.ColumnWidth = screens[1].Bounds.Width + 150;
-                    ScreenWidth = screens[1].Bounds.Width;
-                }
-                else
-                {
-                    sh.Left = screens[0].WorkingArea.X;
-                    sh.Top = screens[0].WorkingArea.Y;
-                    sh.Width = screens[0].Bounds.Width;
-                    sh.Height = screens[0].Bounds.Height;
-                    sh.docViewer.Document.ColumnWidth = screens[0].Bounds.Width + 150;
-                    ScreenWidth = screens[0].Bounds.Width;
-                }
+                sh.Left = screens[1].WorkingArea.X;
+                sh.Top = screens[1].WorkingArea.Y;
+                sh.Width = screens[1].Bounds.Width;
+                sh.Height = screens[1].Bounds.Height;
+                sh.docViewer.Document.ColumnWidth = sh.Width + 150;
+                ScreenWidth = screens[1].Bounds.Width;
             }
             else
             {
+                // Если один монитор или в настройках стоит флаг UseOneMonitor
                 sh.Left = screens[0].WorkingArea.X;
                 sh.Top = screens[0].WorkingArea.Y;
                 sh.Width = screens[0].Bounds.Width;
                 sh.Height = screens[0].Bounds.Height;
-                sh.docViewer.Document.ColumnWidth = screens[0].Bounds.Width + 150;
+                sh.docViewer.Document.ColumnWidth = sh.Width + 150;
                 ScreenWidth = screens[0].Bounds.Width;
             }
 
+            // Панель сервиса
+            if (config.AlwaysServiceMode)
+                servicePanel.Visibility = Visibility.Visible;
+            else
+                servicePanel.Visibility = Visibility.Hidden;
 
-            if (config.AlwaysServiceMode) servicePanel.Visibility = System.Windows.Visibility.Visible;
-            else servicePanel.Visibility = System.Windows.Visibility.Hidden;
-
-            String filePic = "pictures\\default.jpg";
+            // Фон по умолчанию
+            string filePic = "pictures\\default.jpg";
             bool noDefaultFile = false;
+
             if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + filePic))
             {
                 filePic = "pictures\\default.png";
             }
-            else
-            {
-                noDefaultFile = false;
-            }
-            if(!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + filePic))
+            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + filePic))
             {
                 noDefaultFile = true;
             }
-            else
-            {
-                noDefaultFile = false;
-            }
-            if(!noDefaultFile)
+
+            if (!noDefaultFile)
             {
                 ImageBrush myBrush = new ImageBrush();
-                Image image = new Image();
-                image.Source = new BitmapImage(new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + filePic, UriKind.Relative));
-                myBrush.ImageSource = image.Source;
+                myBrush.ImageSource = new BitmapImage(new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + filePic, UriKind.Relative));
                 if (config.StrechFill == 0)
                     myBrush.Stretch = Stretch.Fill;
                 else if (config.StrechFill == 1)
                     myBrush.Stretch = Stretch.Uniform;
-                else if (config.StrechFill == 2)
+                else
                     myBrush.Stretch = Stretch.UniformToFill;
+
                 sh.mainScreen.Background = myBrush;
             }
 
             sh.Show();
             this.Activate();
         }
-        
+
         private void Window_Closed_1(object sender, EventArgs e)
         {
-            if (!SongSaved)
+            // Предупреждение о несохранённой песне
+            if (!SongSaved && config.SaveAsk)
             {
-                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?", "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?",
+                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                {
                     saveFileButton_Click(null, null);
+                }
             }
             if (sh.IsLoaded)
                 sh.Close();
@@ -167,400 +149,36 @@ namespace ChurchScreen
                 eButton_Click(null, null);
                 return;
             }
+            // Убираем фоновое изображение
             sh.mainScreen.Background = null;
 
+            // Сбрасываем флаг, если была только что загружена песня
             if (IsNewSongLoaded)
             {
-                IsNewSongLoaded = false; // Сбрасываем флаг
+                IsNewSongLoaded = false;
             }
-            
+
+            // Отображаем выбранный блок на «большом» экране
             sh.docViewer.Document = song.ToMainScreen();
-            double a = sh.docViewer.Document.PageHeight;
-            sh.docViewer.MaxZoom = 1000;
-            //sh.docViewer.Zoom = 400;
-            //sh.docViewer.FontStretch = FontStretches.SemiCondensed;
-            double b = sh.docViewer.Document.PageHeight;
 
             if (song.IsEnd)
             {
+                // Если мы вышли за пределы блоков, скрываем документ и сбрасываем DataContext
                 HideDocument_Click(null, null);
                 this.songGrid.DataContext = null;
             }
             else
             {
-                foreach (Block bl in sh.docViewer.Document.Blocks)
+                // В качестве DataContext можно привязать параграф
+                if (sh.docViewer.Document != null)
                 {
-                    this.songGrid.DataContext = bl;
+                    foreach (var bl in sh.docViewer.Document.Blocks)
+                    {
+                        this.songGrid.DataContext = bl;
+                    }
                 }
             }
-
         }
-
-        private void cButton_Click(object sender, RoutedEventArgs e)
-        {
-            fileNameTextBox.Text = "";
-        }        
-
-        private void _8Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "8";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "8";
-            }
-        }
-
-        private void _7Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "7";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "7";
-            }
-        }
-
-        private void _9Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "9";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "7";
-            }
-        }
-
-        private void _4Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "4";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "4";
-            }
-        }
-
-        private void _5Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "5";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "5";
-            }
-        }
-
-        private void _6Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "6";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "6";
-            }
-        }
-
-        private void _1Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "1";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "1";
-            }
-        }
-
-        private void _2Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "2";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "2";
-            }
-        }
-
-        private void _3Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "3";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "3";
-            }
-        }
-
-        private void _0Button_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Length < 4)
-            {
-                fileNameTextBox.Text += "0";
-            }
-            else
-            {
-                fileNameTextBox.Text = "";
-                fileNameTextBox.Text += "0";
-            }
-        }               
-
-        private void Window_KeyDown_1(object sender, System.Windows.Input.KeyEventArgs e)
-        {
-            switch (e.Key)
-            {
-                case Key.NumPad0:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "0";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "0";
-                    }
-                    break;
-                }
-                case Key.NumPad1:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "1";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "1";
-                    }
-                    break;
-                }
-                case Key.NumPad2:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "2";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "2";
-                    }
-                    break;
-                }
-                case Key.NumPad3:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "3";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "3";
-                    }
-                    break;
-                }
-                case Key.NumPad4:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "4";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "4";
-                    }
-                    break;
-                }
-                case Key.NumPad5:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "5";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "5";
-                    }
-                    break;
-                }
-                case Key.NumPad6:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "6";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "6";
-                    }
-                    break;
-                }
-                case Key.NumPad7:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "7";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "7";
-                    }
-                    break;
-                }
-                case Key.NumPad8:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "8";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "8";
-                    }
-                    break;
-                }
-                case Key.NumPad9:
-                {
-                    if (fileNameTextBox.Text.Length < 4)
-                    {
-                        fileNameTextBox.Text += "9";
-                    }
-                    else
-                    {
-                        fileNameTextBox.Text = "";
-                        fileNameTextBox.Text += "9";
-                    }
-                    break;
-                }
-                case Key.Delete:
-                {
-                    fileNameTextBox.Text = "";
-                    break;
-                }
-                case Key.Enter:
-                {
-                    eButton_Click(null, null);
-                    break;
-                }  
-            }
-            // Проверка на комбинацию Ctrl + P
-            if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
-            {
-                ToggleServicePanelVisibility();
-            }
-        }
-
-        private void ToggleServicePanelVisibility()
-        {
-            if (servicePanel.Visibility == System.Windows.Visibility.Hidden)
-                servicePanel.Visibility = System.Windows.Visibility.Visible;
-            else
-                servicePanel.Visibility = System.Windows.Visibility.Hidden;
-        }
-
-        private void ExitButton_Click(object sender, RoutedEventArgs e)
-        {
-            Close();
-        }
-
-        private void eButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (fileNameTextBox.Text.Trim().Length == 0)
-            {
-                System.Windows.MessageBox.Show("Пустое имя песни");
-                return;
-            }
-            if (!SongSaved)
-            {
-                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?", "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                    saveFileButton_Click(null, null);
-            }            
-            fileNameTextBox.Text = fileNameTextBox.Text.PadLeft(4, '0');
-            song = new SongDocument(fileNameTextBox.Text, ScreenWidth, config.FontSizeForSplit);
-            this.songGrid.DataContext = sh.docViewer.Document;
-            if (song.ServiseMode)
-            {
-                SongSaved = false;
-                servicePanel.Visibility = System.Windows.Visibility.Visible;
-                if (System.Windows.MessageBox.Show("Открываемая песня содержит припев?", "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                {
-                    song.InsertRefrain();
-                }
-            }
-            else
-            {
-                SongSaved = true;
-                if (!config.AlwaysServiceMode)
-                servicePanel.Visibility = System.Windows.Visibility.Hidden;
-            }
-            this.previewViewer.Document = song.FirstBlock();            
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-            IsNewSongLoaded = true;            
-            UpdatePreviewFontSize();
-        }
-
-        private double GetPreviewScaleFactor()
-        {
-            return 320.0 / ScreenWidth; // Масштабирование на основе ширины экрана
-        }
-
-
-        private void UpdatePreviewFontSize()
-        {
-            if (song == null || previewViewer == null) return;
-            if (song.BlocksCount == 0) return;
-
-            double scaleFactor = GetPreviewScaleFactor();
-
-            // Вычислите размер шрифта для превью
-            int previewFontSize = (int)(song.BlockFontSize * scaleFactor);
-
-            // Если размер шрифта превью не изменился, нет необходимости обновлять его
-            //if (previewViewer.Document.Blocks.First().FontSize == previewFontSize) return;
-
-            // Установите новый размер шрифта для всех блоков в previewViewer
-            foreach (Block block in previewViewer.Document.Blocks)
-            {
-                block.FontSize = previewFontSize;
-            }
-        }
-
-
-
 
         private void HideDocument_Click(object sender, RoutedEventArgs e)
         {
@@ -569,57 +187,203 @@ namespace ChurchScreen
             this.songGrid.DataContext = null;
         }
 
-        private void PrevCoopletButton_Click(object sender, RoutedEventArgs e)
+        private void ExitButton_Click(object sender, RoutedEventArgs e)
         {
-            if (song == null)
+            Close();
+        }
+
+        #region Ввод номера песни с клавиатуры/цифровых кнопок
+
+        private void eButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(fileNameTextBox.Text))
             {
-                this.songGrid.DataContext = null;
+                System.Windows.MessageBox.Show("Пустое имя песни");
                 return;
             }
+
+            // Сохраняем ли предыдущую?
+            if (!SongSaved && config.SaveAsk)
+            {
+                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?",
+                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                {
+                    saveFileButton_Click(null, null);
+                }
+            }
+
+            // Дополняем ведущими нулями (до 4 знаков, как было по логике)
+            fileNameTextBox.Text = fileNameTextBox.Text.PadLeft(4, '0');
+
+            // Создаём новый SongDocument
+            song = new SongDocument(fileNameTextBox.Text, ScreenWidth, config.FontSizeForSplit);
+
+            // Привязка для отладки/просмотра (опционально)
+            this.songGrid.DataContext = sh.docViewer.Document;
+
+            if (song.ServiceMode)
+            {
+                SongSaved = false;
+                servicePanel.Visibility = Visibility.Visible;
+
+                // Проверка, нужен ли припев
+                if (System.Windows.MessageBox.Show("Открываемая песня содержит припев?",
+                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                {
+                    song.InsertRefrain();
+                }
+            }
+            else
+            {
+                SongSaved = true;
+                if (!config.AlwaysServiceMode)
+                    servicePanel.Visibility = Visibility.Hidden;
+            }
+
+            // Показываем в previewViewer первый блок
+            this.previewViewer.Document = song.FirstBlock();
+            currentCoopletLabel.Content = song.CurrentBlockNumber.ToString();
+            coopletsCountLabel.Content = song.BlocksCount.ToString();
+
+            IsNewSongLoaded = true;
+            UpdatePreviewFontSize();
+        }
+
+        // Цифровые кнопки (0-9). Здесь логика одинаковая – добавляем цифру, если < 4 символов
+        private void _0Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("0");
+        }
+        private void _1Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("1");
+        }
+        private void _2Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("2");
+        }
+        private void _3Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("3");
+        }
+        private void _4Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("4");
+        }
+        private void _5Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("5");
+        }
+        private void _6Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("6");
+        }
+        private void _7Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("7");
+        }
+        private void _8Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("8");
+        }
+        private void _9Button_Click(object sender, RoutedEventArgs e)
+        {
+            AddDigit("9");
+        }
+
+        private void cButton_Click(object sender, RoutedEventArgs e)
+        {
+            fileNameTextBox.Text = "";
+        }
+
+        private void AddDigit(string digit)
+        {
+            if (fileNameTextBox.Text.Length < 4)
+            {
+                fileNameTextBox.Text += digit;
+            }
+            else
+            {
+                fileNameTextBox.Text = digit;
+            }
+        }
+
+        private void Window_KeyDown_1(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            // Обработка NumPad
+            if (e.Key >= Key.NumPad0 && e.Key <= Key.NumPad9)
+            {
+                string num = (e.Key - Key.NumPad0).ToString();
+                AddDigit(num);
+            }
+            else if (e.Key == Key.Delete)
+            {
+                fileNameTextBox.Text = "";
+            }
+            else if (e.Key == Key.Enter)
+            {
+                eButton_Click(null, null);
+            }
+
+            // Ctrl+P – показать/скрыть сервисную панель
+            if (e.Key == Key.P && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                ToggleServicePanelVisibility();
+            }
+        }
+
+        private void fileNameTextBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            ToggleServicePanelVisibility();
+        }
+
+        private void ToggleServicePanelVisibility()
+        {
+            if (servicePanel.Visibility == Visibility.Visible)
+                servicePanel.Visibility = Visibility.Hidden;
+            else
+                servicePanel.Visibility = Visibility.Visible;
+        }
+
+        #endregion
+
+        #region Переключение куплетов (prev/next) и их вывод
+
+        private void PrevCoopletButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (song == null) return;
             this.previewViewer.Document = song.PreviousBlock();
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);            
+            currentCoopletLabel.Content = song.CurrentBlockNumber.ToString();
+            coopletsCountLabel.Content = song.BlocksCount.ToString();
         }
 
         private void NextCoopletButton_Click(object sender, RoutedEventArgs e)
         {
             if (song == null) return;
             this.previewViewer.Document = song.NextBlock();
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-        }
-
-        private void Grid_MouseLeftButtonDown_1(object sender, MouseButtonEventArgs e)
-        {
-            
-        }
-
-        private void Window_MouseLeftButtonDown_1(object sender, MouseButtonEventArgs e)
-        {
-            this.DragMove();
+            currentCoopletLabel.Content = song.CurrentBlockNumber.ToString();
+            coopletsCountLabel.Content = song.BlocksCount.ToString();
         }
 
         private void PrevCoopletToScreenButton_Click(object sender, RoutedEventArgs e)
         {
             PrevCoopletButton_Click(null, null);
-            ShowButton_Click_1(null, null);            
+            ShowButton_Click_1(null, null);
         }
 
         private void NextCoopletToScreenButton_Click(object sender, RoutedEventArgs e)
         {
-            if (song == null)
-            {
-                this.songGrid.DataContext = null;
-                return;
-            }
+            if (song == null) return;
 
+            // Если только что загрузили песню, сначала показываем первый блок
             if (IsNewSongLoaded)
             {
                 ShowButton_Click_1(null, null);
-                IsNewSongLoaded = false; // Сбросьте флаг после показа первого блока
+                IsNewSongLoaded = false;
             }
             else
             {
+                // Если документ не скрыт
                 if (sh.docViewer.Document.FontSize != 1)
                 {
                     NextCoopletButton_Click(null, null);
@@ -627,88 +391,117 @@ namespace ChurchScreen
                 }
                 else
                 {
+                    // Просто показываем текущий блок
                     ShowButton_Click_1(null, null);
                 }
             }
         }
 
+        #endregion
+
+        #region Изменение размера шрифта, авторасчёт и сохранение
 
         private void increaseFontButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sh.docViewer.Document.Blocks.Count != 0)
-            {                
-                foreach (Block b in sh.docViewer.Document.Blocks)
+            if (sh.docViewer.Document?.Blocks == null) return;
+
+            foreach (Block b in sh.docViewer.Document.Blocks)
+            {
+                if (b.FontSize < 1000)
                 {
-                    if (b.FontSize < 1000)
-                        b.FontSize += config.FontSizeStep;
-                    if (song != null)
+                    b.FontSize += config.FontSizeStep;
+                    if (song != null && song.BlocksCount > 0)
                     {
-                        song.BlockFontSize = Convert.ToInt32(b.FontSize);
+                        song.BlockFontSize = (int)b.FontSize;
                     }
                 }
-                UpdatePreviewFontSize();
             }
+            UpdatePreviewFontSize();
         }
 
         private void decreaseFontButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sh.docViewer.Document.Blocks.Count != 0)
-            {                
-                foreach (Block b in sh.docViewer.Document.Blocks)
+            if (sh.docViewer.Document?.Blocks == null) return;
+
+            foreach (Block b in sh.docViewer.Document.Blocks)
+            {
+                if (b.FontSize > config.FontSizeStep)
                 {
-                    if (b.FontSize > config.FontSizeStep)
-                        b.FontSize -= config.FontSizeStep;
-                    if (song != null)
+                    b.FontSize -= config.FontSizeStep;
+                    if (song != null && song.BlocksCount > 0)
                     {
-                        song.BlockFontSize = Convert.ToInt32(b.FontSize);
+                        song.BlockFontSize = (int)b.FontSize;
                     }
                 }
-                UpdatePreviewFontSize();
             }
-        }
-
-
-        private void saveFileButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (song == null) return;
-            if (config.SaveAsk)
-                if (System.Windows.MessageBox.Show("Уверены, что хотите перезаписать файл?", "Сохранение", MessageBoxButton.YesNo) != MessageBoxResult.Yes)
-                    return;
-            if (!song.SaveSong()) System.Windows.MessageBox.Show("Error");
-            else SongSaved = true;
+            UpdatePreviewFontSize();
         }
 
         private void calculateFontButton_Click(object sender, RoutedEventArgs e)
         {
             if (song == null) return;
-            if (sh.docViewer.Document.Blocks.Count != 0)
-            {      
+
+            if (sh.docViewer.Document?.Blocks.Count != 0)
+            {
+                int calcSize = song.CalculateFont();
                 foreach (Block b in sh.docViewer.Document.Blocks)
                 {
-                    song.BlockFontSize = song.CalculateFont();
-                    b.FontSize = song.BlockFontSize;
+                    b.FontSize = calcSize;
                 }
-            }            
+                song.BlockFontSize = calcSize;
+            }
             UpdatePreviewFontSize();
         }
 
-        private void fileNameTextBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        private void saveFileButton_Click(object sender, RoutedEventArgs e)
         {
-            if (servicePanel.Visibility == System.Windows.Visibility.Hidden)
-                servicePanel.Visibility = System.Windows.Visibility.Visible;
+            if (song == null) return;
+            if (config.SaveAsk)
+            {
+                if (System.Windows.MessageBox.Show("Уверены, что хотите перезаписать файл?", "Сохранение", MessageBoxButton.YesNo)
+                    != MessageBoxResult.Yes)
+                {
+                    return;
+                }
+            }
+            if (!song.SaveSong())
+                System.Windows.MessageBox.Show("Ошибка при сохранении файла!");
             else
-                servicePanel.Visibility = System.Windows.Visibility.Hidden;
+                SongSaved = true;
         }
 
-        private void showExample_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// Обновляем размер шрифта в превью, опираясь на фактический размер шрифта на экране.
+        /// </summary>
+        private void UpdatePreviewFontSize()
         {
-            ListViewExample lve = new ListViewExample();
-            lve.ShowDialog();
+            if (song == null || previewViewer == null || song.BlocksCount == 0) return;
+
+            // Берём текущий блок
+            FlowDocument doc = previewViewer.Document;
+            if (doc == null || doc.Blocks == null) return;
+
+            int previewSize = song.CalculatePreviewFontSize(song.Blocks[song.CurrentBlockNumber - 1]);
+            foreach (var block in doc.Blocks)
+            {
+                block.FontSize = previewSize;
+            }
         }
 
-        private void searchButton_Click(object sender, RoutedEventArgs e)
+        #endregion
+
+        #region Поиск песен и отображение результатов
+
+        private void searchTextBox_TextChanged(object sender, TextChangedEventArgs e)
         {
-                        
+            listView.Items.Clear();
+            if (string.IsNullOrWhiteSpace(searchTextBox.Text)) return;
+
+            foundSong = new FoundSong();
+            foreach (SearchItem si in foundSong.GetSongFileName(searchTextBox.Text))
+            {
+                listView.Items.Add(si);
+            }
         }
 
         private void listView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
@@ -719,63 +512,61 @@ namespace ChurchScreen
             eButton_Click(null, null);
         }
 
-        private void searchTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void searchButton_Click(object sender, RoutedEventArgs e)
         {
-            listView.Items.Clear();
-            if (searchTextBox.Text.Trim() == "") return;
-            foundSong = new FoundSong();
-            foreach (SearchItem sss in foundSong.GetSongFileName(searchTextBox.Text))
-            {
-                //string result = sss.SongName;
-                this.listView.Items.Add(sss);
-                //if (result.Trim() != "")
-                //{
-                //    fileNameTextBox.Text = result;
-                //    eButton_Click(null, null);
-                //}
-            }
+            // Поиск по нажатию кнопки (при необходимости)
         }
 
-        private void backgroundListView_MouseDown(object sender, MouseButtonEventArgs e)
+        private void showExample_Click(object sender, RoutedEventArgs e)
         {
-            
+            ListViewExample lve = new ListViewExample();
+            lve.ShowDialog();
         }
+
+        #endregion
+
+        #region Работа с фоном (картинки)
 
         private void backgroundListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (backgroundListView.SelectedItem == null) return;
-            PicturesFileName sss = (PicturesFileName)backgroundListView.SelectedItem;
-            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + sss.FileName)) return;
+            PicturesFileName pf = (PicturesFileName)backgroundListView.SelectedItem;
+            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + pf.FileName)) return;
+
             BitmapImage bi3 = new BitmapImage();
             bi3.BeginInit();
-            bi3.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + sss.FileName, UriKind.Relative);
+            bi3.UriSource = new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + pf.FileName, UriKind.Relative);
             bi3.CacheOption = BitmapCacheOption.OnLoad;
             bi3.EndInit();
-            if(config.StrechFill == 0)
+
+            if (config.StrechFill == 0)
                 backgroundImage.Stretch = Stretch.Fill;
-            else if(config.StrechFill == 1)
+            else if (config.StrechFill == 1)
                 backgroundImage.Stretch = Stretch.Uniform;
-            else if(config.StrechFill == 2)
+            else
                 backgroundImage.Stretch = Stretch.UniformToFill;
+
             backgroundImage.Source = bi3;
         }
-                
+
         private void showBGButton_Click(object sender, RoutedEventArgs e)
         {
             if (backgroundListView.SelectedItem == null) return;
             HideDocument_Click(null, null);
-            PicturesFileName sss = (PicturesFileName)backgroundListView.SelectedItem;
-            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + sss.FileName)) return;
+
+            PicturesFileName pf = (PicturesFileName)backgroundListView.SelectedItem;
+            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "\\" + pf.FileName)) return;
+
             ImageBrush myBrush = new ImageBrush();
-            Image image = new Image();
-            image.Source = new BitmapImage(new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + sss.FileName, UriKind.Relative));
-            myBrush.ImageSource = image.Source;
+            myBrush.ImageSource = new BitmapImage(new Uri(AppDomain.CurrentDomain.BaseDirectory + "\\" + pf.FileName, UriKind.Relative));
+
             if (config.StrechFill == 0)
                 myBrush.Stretch = Stretch.Fill;
             else if (config.StrechFill == 1)
                 myBrush.Stretch = Stretch.Uniform;
-            else if (config.StrechFill == 2)
+            else
                 myBrush.Stretch = Stretch.UniformToFill;
+
             sh.mainScreen.Background = myBrush;
         }
 
@@ -784,46 +575,45 @@ namespace ChurchScreen
             sh.mainScreen.Background = null;
         }
 
-        private void undoSplitBlocks_Click(object sender, RoutedEventArgs e)
-        {
-            if (song == null) return;
-            song.UndoSplitBlocks();
+        #endregion
 
-            // Обновляем содержимое docViewer в главном окне
-            sh.docViewer.Document = song.ToMainScreen();
-
-            // Обновляем содержимое previewViewer
-            this.previewViewer.Document = song.FirstBlock();
-
-            // Обновляем номер текущего блока и общее количество блоков
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-
-            if(song.CurrentBlockNumber != 1)
-                IsNewSongLoaded = true;
-            // Обновляем размер шрифта для превью
-            UpdatePreviewFontSize();
-        }
+        #region Разбивка/объединение блоков
 
         private void splitBlocks_Click(object sender, RoutedEventArgs e)
         {
             if (song == null) return;
-            song.SplitLargeBlocksIfNeeded ();
 
-            // Обновляем содержимое docViewer в главном окне
+            // Разбиваем большие блоки
+            song.SplitLargeBlocksIfNeeded();
+
+            // Обновляем docViewer и previewViewer
             sh.docViewer.Document = song.ToMainScreen();
+            previewViewer.Document = song.FirstBlock();
 
-            // Обновляем содержимое previewViewer
-            this.previewViewer.Document = song.FirstBlock();
-
-            // Обновляем номер текущего блока и общее количество блоков
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-
+            currentCoopletLabel.Content = song.CurrentBlockNumber;
+            coopletsCountLabel.Content = song.BlocksCount;
             if (song.CurrentBlockNumber != 1)
                 IsNewSongLoaded = true;
 
-            // Обновляем размер шрифта для превью
+            UpdatePreviewFontSize();
+        }
+
+        private void undoSplitBlocks_Click(object sender, RoutedEventArgs e)
+        {
+            if (song == null) return;
+
+            // Отменяем разбивку
+            song.UndoSplitBlocks();
+
+            // Обновляем docViewer и previewViewer
+            sh.docViewer.Document = song.ToMainScreen();
+            previewViewer.Document = song.FirstBlock();
+
+            currentCoopletLabel.Content = song.CurrentBlockNumber;
+            coopletsCountLabel.Content = song.BlocksCount;
+            if (song.CurrentBlockNumber != 1)
+                IsNewSongLoaded = true;
+
             UpdatePreviewFontSize();
         }
 
@@ -831,23 +621,27 @@ namespace ChurchScreen
         {
             if (song == null) return;
 
-            // Вызовите метод UndoSplitForBlock для текущего блока
+            // Отменяем разбивку только для текущего блока
             song.UndoSplitForBlock(song.CurrentBlockNumber);
 
-            // Обновляем содержимое docViewer в главном окне
+            // Обновляем docViewer и previewViewer
             sh.docViewer.Document = song.ToMainScreen();
+            previewViewer.Document = song.CurrentBlock();
 
-            // Обновляем содержимое previewViewer
-            this.previewViewer.Document = song.CurrentBlock();
-
-            // Обновляем номер текущего блока и общее количество блоков
-            currentCoopletLabel.Content = Convert.ToString(song.CurrentBlockNumber);
-            coopletsCountLabel.Content = Convert.ToString(song.BlocksCount);
-
+            currentCoopletLabel.Content = song.CurrentBlockNumber;
+            coopletsCountLabel.Content = song.BlocksCount;
             if (song.CurrentBlockNumber != 1)
                 IsNewSongLoaded = true;
 
+            // Можем сразу пересчитать шрифт
             calculateFontButton_Click(null, null);
+        }
+
+        #endregion
+
+        private void Window_MouseLeftButtonDown_1(object sender, MouseButtonEventArgs e)
+        {
+            this.DragMove();
         }
     }
 }
