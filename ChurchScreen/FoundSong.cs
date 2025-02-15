@@ -31,40 +31,47 @@ namespace ChurchScreen
             {
                 foreach (string dir in FileList)
                 {
-                    encoding = SongDocument.GetFileEncoding(dir);
-                    if (encoding == Encoding.UTF8)
+                    try
                     {
-                        s = File.OpenText(dir);
-                        fileData = s.ReadLine();
-                        s.Close();
-                    }
-                    else
-                    {
-                        byte[] ansiBytes = File.ReadAllBytes(dir);
-                        var utf8String = Encoding.Default.GetString(ansiBytes);
-                        fileData = utf8String.ToString();
-                        fileData = fileData.Substring(0, fileData.IndexOf("\n"));
-                    }
-                    if (!fileData.Contains("@01"))
-                        continue;
-                    fileData = fileData.ToLower();
-                    searchStr = searchStr.ToLower();
-                    if (fileData.Contains(searchStr))
-                    {
-                        si = new SearchItem();
-                        si.SongName = Path.GetFileNameWithoutExtension(dir);
-                        SongDocument song = new SongDocument(dir, 0);
-                        if (song.coopletList.Count != 0)
+                        encoding = SongDocument.GetFileEncoding(dir);
+                        if (encoding == Encoding.UTF8)
                         {
-                            songText = song.coopletList[0];
-                            songText = songText.Substring(0, songText.IndexOf("\n"));
-                            songText = songText.Trim();
-                            si.SongText = songText;
-                            result.Add(si);
+                            s = File.OpenText(dir);
+                            fileData = s.ReadLine();
+                            s.Close();
                         }
+                        else
+                        {
+                            byte[] ansiBytes = File.ReadAllBytes(dir);
+                            var utf8String = Encoding.Default.GetString(ansiBytes);
+                            fileData = utf8String.ToString();
+                            fileData = fileData.Substring(0, fileData.IndexOf("\n"));
+                        }
+                        if (!fileData.Contains("@01"))
+                            continue;
+                        fileData = fileData.ToLower();
+                        searchStr = searchStr.ToLower();
+                        if (fileData.Contains(searchStr))
+                        {
+                            si = new SearchItem();
+                            si.SongName = Path.GetFileNameWithoutExtension(dir);
+                            SongDocument song = new SongDocument(dir, 0);
+                            if (song.coopletList.Count != 0)
+                            {
+                                songText = song.coopletList[0];
+                                songText = songText.Substring(0, songText.IndexOf("\n"));
+                                songText = songText.Trim();
+                                si.SongText = songText;
+                                result.Add(si);
+                            }
+                        }
+                        else
+                            continue;
                     }
-                    else
+                    catch(Exception)
+                    {
                         continue;
+                    }
                 }
             });
             task1.Wait();
