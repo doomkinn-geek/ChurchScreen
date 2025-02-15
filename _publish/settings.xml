@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Configuration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <!-- Step to change size of font in service mode -->
+  <FontSizeStep>5</FontSizeStep>
+  <!-- Visibility of service Panel, when file is not in service mode -->
+  <AlwaysServiceMode>false</AlwaysServiceMode>
+  <!-- Ask before save song -->
+  <SaveAsk>true</SaveAsk>
+  <!-- Use only one monitor to debug application-->
+  <UseOneMonitor>false</UseOneMonitor>
+  <!-- Strech type for background picture (0 - fill, 1 - uniform, 2 - uniformToFill) -->
+  <StrechFill>2</StrechFill>
+  <UseDefaultBackground>false</UseDefaultBackground>
+  <FontSizeForSplit>200</FontSizeForSplit>
+</Configuration>

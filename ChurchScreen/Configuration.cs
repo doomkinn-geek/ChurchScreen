@@ -13,6 +13,7 @@ namespace ChurchScreen
         public bool UseOneMonitor;//использовать только первый монитор (для отладки)
         public uint StrechFill;//тип растягивания для фона на основном экране. Если true - тип растягивания UniformToFill иначе Uniform
         public bool UseDefaultBackground;//использовать файл default для фона по умолчанию или нет
+        public int FontSizeForSplit;//размер шрифта, при котором рассчетно можно делить блок пополам
 
         public Configuration()
         {

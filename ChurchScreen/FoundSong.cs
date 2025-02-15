@@ -9,74 +9,79 @@ namespace ChurchScreen
 {
     public class FoundSong
     {
-        private string[] FileList;
+        private List<string> FileList;
+
         public FoundSong()
         {
-            FileList = Directory.GetFiles(Environment.CurrentDirectory + "\\songs\\", "*");
-            //Console.WriteLine("The number of files is {0}.", FileList.Length);            
+            FileList = Directory.GetFiles(Environment.CurrentDirectory + "\\songs\\", "*").ToList();
         }
 
-        public List<SearchItem> GetSongFileName(String searchStr)
-        {            
+        public List<SearchItem> GetSongFileName(string searchStr)
+        {
+            if (string.IsNullOrWhiteSpace(searchStr) || searchStr.Length < 2)
+                return new List<SearchItem>();
+
+            searchStr = RemovePunctuation(searchStr.ToLower());
+
             List<SearchItem> result = new List<SearchItem>();
-            if (searchStr.Length < 2) return result;
-            SearchItem si;            
-            string songText;
-            String fileData;
-            StreamReader s;
-            Encoding encoding;
 
-
-            Task task1 = Task.Factory.StartNew(() =>
+            Parallel.ForEach(FileList, dir =>
             {
-                foreach (string dir in FileList)
+                var fileData = ReadFirstLineFromFile(dir);
+
+                // Проверка на null
+                if (string.IsNullOrEmpty(fileData))
+                    return;
+
+                if (!fileData.Contains("@01"))
+                    return;
+
+                var cleanedFileData = RemovePunctuation(fileData.ToLower());
+
+                if (cleanedFileData.Contains(searchStr))
                 {
-                    try
+                    var si = new SearchItem
                     {
-                        encoding = SongDocument.GetFileEncoding(dir);
-                        if (encoding == Encoding.UTF8)
-                        {
-                            s = File.OpenText(dir);
-                            fileData = s.ReadLine();
-                            s.Close();
-                        }
-                        else
-                        {
-                            byte[] ansiBytes = File.ReadAllBytes(dir);
-                            var utf8String = Encoding.Default.GetString(ansiBytes);
-                            fileData = utf8String.ToString();
-                            fileData = fileData.Substring(0, fileData.IndexOf("\n"));
-                        }
-                        if (!fileData.Contains("@01"))
-                            continue;
-                        fileData = fileData.ToLower();
-                        searchStr = searchStr.ToLower();
-                        if (fileData.Contains(searchStr))
-                        {
-                            si = new SearchItem();
-                            si.SongName = Path.GetFileNameWithoutExtension(dir);
-                            SongDocument song = new SongDocument(dir, 0);
-                            if (song.coopletList.Count != 0)
-                            {
-                                songText = song.coopletList[0];
-                                songText = songText.Substring(0, songText.IndexOf("\n"));
-                                songText = songText.Trim();
-                                si.SongText = songText;
-                                result.Add(si);
-                            }
-                        }
-                        else
-                            continue;
-                    }
-                    catch(Exception)
+                        SongName = Path.GetFileNameWithoutExtension(dir),
+                        SongText = GetSongText(dir)
+                    };
+
+                    // Дополнительная проверка на null
+                    if (!string.IsNullOrEmpty(si.SongText))
                     {
-                        continue;
+                        result.Add(si);
                     }
                 }
             });
-            task1.Wait();
-            task1.Dispose();
+
             return result;
+        }
+
+
+
+        private string ReadFirstLineFromFile(string filePath)
+        {
+            Encoding encoding = SongDocument.GetFileEncoding(filePath);
+            using (var reader = new StreamReader(filePath, encoding))
+            {
+                return reader.ReadLine();
+            }
+        }
+
+        private string GetSongText(string filePath)
+        {
+            var song = new SongDocument(filePath, 0, 200);
+            if (song.coopletList.Count > 0)
+            {
+                var songText = song.coopletList[0];
+                return songText.Substring(0, songText.IndexOf("\n")).Trim();
+            }
+            return null;
+        }
+
+        private string RemovePunctuation(string input)
+        {
+            return new string(input.Where(c => !char.IsPunctuation(c)).ToArray());
         }
     }
 }
