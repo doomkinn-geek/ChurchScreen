@@ -238,32 +238,43 @@ namespace ChurchScreen
                 return;
             }
 
+            // Если текущая песня не сохранена
             if (!SongSaved && config.SaveAsk)
             {
-                if (System.Windows.MessageBox.Show(
-                    "Редактируемая песня еще не сохранена. Сохранить?",
-                    "Сервисный режим",
-                    MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?",
+                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
                     saveFileButton_Click(null, null);
                 }
             }
 
+            // Дополняем до 4 символов (например "0012")
             fileNameTextBox.Text = fileNameTextBox.Text.PadLeft(4, '0');
 
-            // Создаём SongDocument
-            song = new SongDocument(fileNameTextBox.Text, _monitorWidth, config.FontSizeForSplit);
+            // Определяем DPI для окна ShowScreen (или для this, если хотим)
+            // Обычно берём PresentationSource.FromVisual(sh), т.к. sh уже показано на втором мониторе.
+            var source = PresentationSource.FromVisual(sh);
+            double effectiveScreenWidth = _monitorWidth; // по умолчанию
+            if (source != null)
+            {
+                Matrix m = source.CompositionTarget.TransformToDevice;
+                double dpiX = m.M11;
+                // double dpiY = m.M22; // если надо
+                // Переводим физические пиксели в DIPs:
+                effectiveScreenWidth = _monitorWidth / dpiX;
+            }
 
-            // Если файл в режиме сервиса
+            // Создаём SongDocument, передавая "масштабированный" screenWidth (в DIPs)
+            song = new SongDocument(fileNameTextBox.Text, (int)effectiveScreenWidth, config.FontSizeForSplit);
+
+            // Если файл "сервисный"
             if (song.ServiceMode)
             {
                 SongSaved = false;
                 servicePanel.Visibility = Visibility.Visible;
 
-                if (System.Windows.MessageBox.Show(
-                    "Открываемая песня содержит припев?",
-                    "Сервисный режим",
-                    MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                if (System.Windows.MessageBox.Show("Открываемая песня содержит припев?",
+                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
                 {
                     song.InsertRefrain();
                 }
@@ -280,12 +291,13 @@ namespace ChurchScreen
             currentCoopletLabel.Content = song.CurrentBlockNumber;
             coopletsCountLabel.Content = song.BlocksCount;
 
-            // Подбираем размер (чтобы в preview было что-то уже корректное)
+            // «Автоподбор» по формуле SongDocument
             AutoCalculateFontForCurrentBlock();
 
             IsNewSongLoaded = true;
             UpdatePreviewFontSize();
         }
+
 
         private void AddDigit(string digit)
         {
