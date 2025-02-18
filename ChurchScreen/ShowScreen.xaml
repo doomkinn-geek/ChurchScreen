@@ -9,11 +9,10 @@
                           VerticalContentAlignment="Center"
                           VerticalScrollBarVisibility="Hidden">
                 <FlowDocument FontSize="1">                    
-                <Paragraph>
-                   
-                </Paragraph>                
-            </FlowDocument>
-        </FlowDocumentScrollViewer>
+                    <Paragraph>                   
+                    </Paragraph>                
+                </FlowDocument>
+            </FlowDocumentScrollViewer>
         </DockPanel>
     </Grid>
 </Window>

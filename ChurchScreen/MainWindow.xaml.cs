@@ -32,6 +32,7 @@ namespace ChurchScreen
         public MainWindow()
         {
             InitializeComponent();
+            previewViewer.PreviewMouseWheel += (s, e) => e.Handled = true;
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             try
             {
@@ -448,18 +449,25 @@ namespace ChurchScreen
         {
             if (sh.docViewer.Document?.Blocks == null) return;
 
+            // Для каждого блока в ShowScreen увеличиваем шрифт
+            // (хотя обычно там всего 1 Paragraph, но на всякий случай)
             foreach (Block b in sh.docViewer.Document.Blocks)
             {
                 if (b.FontSize < 1000)
                 {
                     b.FontSize += config.FontSizeStep;
+
+                    // Сохраняем новое значение в SongDocument
                     if (song != null && song.BlocksCount > 0)
                     {
+                        // Запоминаем в объекте SongDocument
                         song.BlockFontSize = (int)b.FontSize;
                     }
                 }
             }
-            UpdatePreviewFontSize();
+
+            // Обновляем предпросмотр, делая «прямое» масштабирование
+            UpdatePreviewFontSizeByRatio();
         }
 
         private void decreaseFontButton_Click(object sender, RoutedEventArgs e)
@@ -471,14 +479,47 @@ namespace ChurchScreen
                 if (b.FontSize > config.FontSizeStep)
                 {
                     b.FontSize -= config.FontSizeStep;
+
                     if (song != null && song.BlocksCount > 0)
                     {
                         song.BlockFontSize = (int)b.FontSize;
                     }
                 }
             }
-            UpdatePreviewFontSize();
+
+            UpdatePreviewFontSizeByRatio();
         }
+
+        /// <summary>
+        /// Шрифт в previewViewer делаем пропорциональным
+        /// текущему шрифту в SongDocument.BlockFontSize.
+        /// </summary>
+        private void UpdatePreviewFontSizeByRatio()
+        {
+            if (song == null) return;
+            if (previewViewer?.Document == null) return;
+            if (song.BlocksCount == 0) return;
+
+            // «Основной» шрифт (текущего блока) на ShowScreen
+            int mainFontSize = song.BlockFontSize;
+            if (mainFontSize < 1) mainFontSize = 1;
+
+            // Рассчитываем коэффициент уменьшения 
+            // Допустим, preview шириной 320, а ScreenWidth = song.ScreenWidth
+            // (который мы передали в SongDocument при создании)
+            double scaleFactor = 320.0 / song.ScreenWidth;
+            if (scaleFactor > 1.0) scaleFactor = 1.0; // На случай очень узкого экрана
+
+            double previewSize = mainFontSize * scaleFactor;
+            if (previewSize < 8) previewSize = 8;   // минимальный размер шрифта в превью
+
+            foreach (Block block in previewViewer.Document.Blocks)
+            {
+                block.FontSize = previewSize;
+            }
+        }
+
+
 
         private void calculateFontButton_Click(object sender, RoutedEventArgs e)
         {

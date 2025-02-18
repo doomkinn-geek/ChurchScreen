@@ -723,14 +723,29 @@ namespace ChurchScreen
         /// </summary>
         private FlowDocument GetDocument(int blockIndex, bool previewMode)
         {
-            var doc = new FlowDocument
+            FlowDocument doc;
+            if (!previewMode)
             {
-                FontFamily = new FontFamily("Arial"),
-                IsOptimalParagraphEnabled = true,
-                IsHyphenationEnabled = true,
-                TextAlignment = TextAlignment.Center,
-                PagePadding = new Thickness(0, 40, 0, 40)
-            };
+                doc = new FlowDocument
+                {
+                    FontFamily = new FontFamily("Arial"),
+                    IsOptimalParagraphEnabled = true,
+                    IsHyphenationEnabled = true,
+                    TextAlignment = TextAlignment.Center,
+                    PagePadding = new Thickness(0, 40, 0, 40)
+                };
+            }
+            else
+            {
+                doc = new FlowDocument
+                {
+                    FontFamily = new FontFamily("Arial"),
+                    IsOptimalParagraphEnabled = true,
+                    IsHyphenationEnabled = true,
+                    TextAlignment = TextAlignment.Center,
+                    PagePadding = new Thickness(0, 5, 0, 5)
+                };
+            }
 
             if (blockIndex <= 0 || blockIndex > BlocksCount)
                 return doc; // пусто
