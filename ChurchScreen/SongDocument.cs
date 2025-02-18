@@ -16,6 +16,8 @@ namespace ChurchScreen
     public class SongDocument
     {
         private int _currentBlockNumber;         // Текущий блок (1-based)
+        private int _screenHeight;
+
         public bool ServiceMode { get; private set; }
         public string FileName { get; private set; }
 
@@ -77,12 +79,15 @@ namespace ChurchScreen
             { '1', 0.8 }, { '.', 0.6 }, { ',', 0.6 }, { ':', 0.6 }, { ';', 0.6 }, { '!', 0.7 },
         };
 
-        public SongDocument(string fileName, int screenWidth, int fontSizeForSplit)
+        // Конструктор
+        public SongDocument(string fileName, int dipWidth, int dipHeight, int fontSizeForSplit)
         {
+            ScreenWidth = dipWidth;
+            _screenHeight = dipHeight; 
             FontSizeForSplit = fontSizeForSplit;
-            ScreenWidth = screenWidth;
             Initialize(fileName);
         }
+
 
         #region Инициализация
 
@@ -129,14 +134,9 @@ namespace ChurchScreen
         {
             try
             {
-                Encoding enc = GetFileEncoding(filePath);
-                if (enc == Encoding.UTF8)
-                    return File.ReadAllText(filePath, Encoding.UTF8);
-                else
-                {
-                    byte[] ansiBytes = File.ReadAllBytes(filePath);
-                    return Encoding.Default.GetString(ansiBytes);
-                }
+                Encoding encoding = GetFileEncoding(filePath);
+                // Прямо используем эту «нашу» кодировку
+                return File.ReadAllText(filePath, encoding);
             }
             catch
             {
@@ -144,8 +144,10 @@ namespace ChurchScreen
             }
         }
 
+
         public static Encoding GetFileEncoding(string srcFile)
         {
+            // Пробуем определить BOM
             using (var file = new FileStream(srcFile, FileMode.Open, FileAccess.Read))
             {
                 var buffer = new byte[5];
@@ -154,22 +156,29 @@ namespace ChurchScreen
                 // UTF-8 BOM
                 if (buffer[0] == 0xef && buffer[1] == 0xbb && buffer[2] == 0xbf)
                     return Encoding.UTF8;
+
                 // Unicode (Big Endian)
                 if (buffer[0] == 0xfe && buffer[1] == 0xff)
-                    return Encoding.GetEncoding(1201);
+                    return Encoding.BigEndianUnicode;  // или Encoding.GetEncoding(1201);
+
                 // UTF-32
                 if (buffer[0] == 0 && buffer[1] == 0 && buffer[2] == 0xfe && buffer[3] == 0xff)
                     return Encoding.UTF32;
-                // UTF-7 BOM
+
+                // UTF-7
                 if (buffer[0] == 0x2b && buffer[1] == 0x2f && buffer[2] == 0x76)
                     return Encoding.UTF7;
-                // UTF-16
-                if (buffer[0] == 0xFF && buffer[1] == 0xFE)
-                    return Encoding.GetEncoding(1200);
 
-                return Encoding.Default;
+                // UTF-16 (LE)
+                if (buffer[0] == 0xFF && buffer[1] == 0xFE)
+                    return Encoding.Unicode; // или Encoding.GetEncoding(1200)
             }
+
+            // Если мы сюда дошли – нет BOM, предполагаем «ANSI», 
+            // но в .NET 6 «Encoding.Default» может не быть cp1251. Поэтому берём 1251 (кириллица):
+            return Encoding.GetEncoding(1251);
         }
+
 
         private void LoadTextAndSplitIntoBlocks(string fileData)
         {
@@ -444,12 +453,13 @@ namespace ChurchScreen
             if (string.IsNullOrWhiteSpace(block))
                 return 90;
 
-            // Разбиваем на строки (убираем пустые)
+            // Разбиваем по переводам строк
             var lines = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-            var maxLengthStr = lines.OrderByDescending(s => s.Length).FirstOrDefault() ?? "";
 
+            // Самая длинная по «взвешенной» длине
             double weightedLength = 0;
-            foreach (char c in maxLengthStr)
+            var maxLine = lines.OrderByDescending(s => s.Length).FirstOrDefault() ?? "";
+            foreach (char c in maxLine)
             {
                 if (widthCoefficients.TryGetValue(c, out double coeff))
                     weightedLength += coeff;
@@ -457,21 +467,32 @@ namespace ChurchScreen
                     weightedLength += 1.0;
             }
 
-            double symbCountBold = ScreenWidth * 280.0 / 1920.0;
-            double fontSizeByWidth = 12.0 * symbCountBold / weightedLength;
+            // 1) Подбираем fontSize «по ширине»
+            //    Предположим, что «1 весовая единица» ~ fontSize * 0.6 DIP
+            //    => Для maxLine «weightedLength» весовых символов нужно weightedLength*(fontSize*0.6) DIP
+            //    => это не должно превышать ScreenWidth
+            //    => fontSize <= ScreenWidth / (weightedLength*0.6)
+            double fontSizeByWidth = ScreenWidth / (weightedLength * 0.6);
+            if (fontSizeByWidth < 1) fontSizeByWidth = 1;
 
-            double screenHeight = ScreenWidth * 9.0 / 16.0;
-            double maxLinesOnScreen = screenHeight / (fontSizeByWidth * 1.5);
+            // 2) «Подбираем» с учётом количества строк:
+            //    Пусть каждая строка ~ fontSize*(1.5) DIP по высоте (коэффициент межстрочного интервала)
+            //    => общий текст занимает lines.Length*(fontSize*1.5)
+            //    => это не должно превышать _screenHeight
+            //    => fontSize <= _screenHeight / (lines.Length*1.5)
+            double fontSizeByHeight = _screenHeight / (lines.Length * 1.5);
+            if (fontSizeByHeight < 1) fontSizeByHeight = 1;
 
-            if (lines.Length > maxLinesOnScreen && maxLinesOnScreen > 0)
-            {
-                fontSizeByWidth *= (maxLinesOnScreen / lines.Length);
-            }
+            // 3) Итоговый fontSize — минимум из двух «по ширине» и «по высоте»
+            double final = Math.Min(fontSizeByWidth, fontSizeByHeight);
 
-            int finalSize = (int)fontSizeByWidth;
-            if (finalSize < 10) finalSize = 10;
-            return finalSize;
+            // Защита от «слишком маленького»
+            if (final < 10) final = 10;
+            if (final > 1000) final = 1000;
+
+            return (int)final;
         }
+
 
         /// <summary>
         /// Уменьшенный шрифт для предпросмотра.
@@ -615,41 +636,56 @@ namespace ChurchScreen
         public void UndoSplitBlocks()
         {
             if (BlocksCount == 0) return;
-            RemoveEndSymbols();
+            RemoveEndSymbols(); // убираем "* * *" из конца, если есть
 
-            var restored = new List<string>();
+            var restoredBlocks = new List<string>();
             var restoredFonts = new List<int>();
 
-            for (int i = 0; i < Blocks.Count; i++)
+            int i = 0;
+            while (i < Blocks.Count)
             {
                 string currentBlock = Blocks[i];
-                if (currentBlock.EndsWith(" =>") && i + 1 < Blocks.Count)
+
+                // Если текущий блок заканчивается на " =>" и есть следующий
+                if (currentBlock.EndsWith("=>") && (i + 1) < Blocks.Count)
                 {
-                    // Удаляем " =>" в конце последней строки
-                    currentBlock = currentBlock.Replace(" =>", "");
+                    // Удаляем " =>" из конца, срезаем хвостовые пробелы
+                    string mergedFirstPart = currentBlock.Replace("=>", "").TrimEnd();
 
-                    // Склеиваем с следующим
-                    string combined = currentBlock.TrimEnd()
-                                     + Environment.NewLine
-                                     + Blocks[i + 1];
+                    // Склеиваем с блоком i+1, разделяя переводом строки
+                    string combined = mergedFirstPart
+                                      + Environment.NewLine
+                                      + Blocks[i + 1];
 
-                    int fsize = CalculateFont(combined);
-                    restored.Add(combined);
-                    restoredFonts.Add(fsize);
+                    // Пересчитаем шрифт для объединённого блока
+                    int combinedFont = CalculateFont(combined);
 
-                    i++; // пропускаем следующий, т.к. он склеился
+                    // Добавляем склеенный блок в «восстановленный» список
+                    restoredBlocks.Add(combined);
+                    restoredFonts.Add(combinedFont);
+
+                    // Пропускаем блок i+1, т.к. он уже «поглощён»
+                    i += 2;
                 }
                 else
                 {
-                    restored.Add(currentBlock);
-                    restoredFonts.Add(CalculateFont(currentBlock));
+                    // Если нет признака " =>" или нет следующего блока,
+                    // просто добавляем блок, как есть
+                    restoredBlocks.Add(currentBlock);
+                    restoredFonts.Add(_blocksFontSizes[i]);
+
+                    i++;
                 }
             }
 
-            Blocks = restored;
+            Blocks = restoredBlocks;
             _blocksFontSizes = restoredFonts;
-            AddEndSymbols();
+
+            AddEndSymbols(); // возвращаем "* * *", если надо
         }
+
+
+
 
         /// <summary>
         /// Отменить разбивку только одного блока (если " =>" в конце).

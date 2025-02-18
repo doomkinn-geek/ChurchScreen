@@ -10,6 +10,7 @@ using System.Windows.Media;
 using System.Xml.Serialization;
 using System.Windows.Forms; // для Screen
 using System.Windows.Media.Imaging;
+using System.Text;
 
 namespace ChurchScreen
 {
@@ -31,6 +32,7 @@ namespace ChurchScreen
         public MainWindow()
         {
             InitializeComponent();
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
             try
             {
                 string settingsPath = System.IO.Path.Combine(Environment.CurrentDirectory, "settings.xml");
@@ -82,11 +84,18 @@ namespace ChurchScreen
             // Чтобы FlowDocumentScrollViewer не делил на колонки:
             sh.docViewer.Document.ColumnWidth = sh.Width + 150;
 
-            // Загружаем список фоновых изображений
-            string[] files = Directory.GetFiles("pictures");
-            for (int x = 0; x < files.Length; x++)
+            try
             {
-                backgroundListView.Items.Add(new PicturesFileName(files[x]));
+                // Загружаем список фоновых изображений
+                string[] files = Directory.GetFiles("pictures");
+                for (int x = 0; x < files.Length; x++)
+                {
+                    backgroundListView.Items.Add(new PicturesFileName(files[x]));
+                }
+            }
+            catch(Exception ex) 
+            {
+                ;
             }
             if (backgroundListView.Items.Count != 0)
                 backgroundListView.SelectedIndex = 0;
@@ -254,18 +263,29 @@ namespace ChurchScreen
             // Определяем DPI для окна ShowScreen (или для this, если хотим)
             // Обычно берём PresentationSource.FromVisual(sh), т.к. sh уже показано на втором мониторе.
             var source = PresentationSource.FromVisual(sh);
-            double effectiveScreenWidth = _monitorWidth; // по умолчанию
             if (source != null)
             {
                 Matrix m = source.CompositionTarget.TransformToDevice;
                 double dpiX = m.M11;
-                // double dpiY = m.M22; // если надо
-                // Переводим физические пиксели в DIPs:
-                effectiveScreenWidth = _monitorWidth / dpiX;
+                double dpiY = m.M22;
+
+                double dipWidth = _monitorWidth / dpiX;
+                double dipHeight = _monitorHeight / dpiY;
+
+                song = new SongDocument(fileNameTextBox.Text,
+                                        (int)dipWidth,
+                                        (int)dipHeight,
+                                        config.FontSizeForSplit);
+            }
+            else
+            {
+                // fallback
+                song = new SongDocument(fileNameTextBox.Text,
+                                        _monitorWidth,
+                                        (int)(_monitorWidth * 9.0 / 16.0),
+                                        config.FontSizeForSplit);
             }
 
-            // Создаём SongDocument, передавая "масштабированный" screenWidth (в DIPs)
-            song = new SongDocument(fileNameTextBox.Text, (int)effectiveScreenWidth, config.FontSizeForSplit);
 
             // Если файл "сервисный"
             if (song.ServiceMode)

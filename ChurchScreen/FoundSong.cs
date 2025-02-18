@@ -69,7 +69,7 @@ namespace ChurchScreen
 
         private string GetSongText(string filePath)
         {
-            var song = new SongDocument(filePath, 0, 200);
+            var song = new SongDocument(filePath, 0, 1080, 200);
             if (song.Blocks != null && song.Blocks.Count > 0)
             {
                 var firstBlock = song.Blocks[0];
