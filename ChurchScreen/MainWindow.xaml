@@ -145,7 +145,7 @@
                             <BitmapImage DecodePixelWidth="200" UriSource="Resources\logo.png" />
                         </Image.Source>
                     </Image>
-                    <TextBlock Text="v. 2.3"
+                    <TextBlock Text="v. 3.0"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                FontSize="20"

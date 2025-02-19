@@ -480,7 +480,9 @@ namespace ChurchScreen
             //    => общий текст занимает lines.Length*(fontSize*1.5)
             //    => это не должно превышать _screenHeight
             //    => fontSize <= _screenHeight / (lines.Length*1.5)
-            double fontSizeByHeight = _screenHeight / (lines.Length * 1.5);
+            //double fontSizeByHeight = _screenHeight / (lines.Length * 1.5);
+            double fontSizeByHeight = _screenHeight / lines.Length;
+
             if (fontSizeByHeight < 1) fontSizeByHeight = 1;
 
             // 3) Итоговый fontSize — минимум из двух «по ширине» и «по высоте»
@@ -500,13 +502,12 @@ namespace ChurchScreen
         public int CalculatePreviewFontSize(string block)
         {
             int mainFontSize = CalculateFont(block);
-            if (ScreenWidth <= 0) return mainFontSize;
-
-            double scaleFactor = 320.0 / ScreenWidth;
+            // previewViewer.Width (например, 321 DIP) – это ширина, в которой будет показан уменьшённый текст.
+            double scaleFactor = 321.0 / ScreenWidth;
             int previewFontSize = (int)(mainFontSize * scaleFactor);
-            if (previewFontSize < 8) previewFontSize = 8;
-            return previewFontSize;
+            return previewFontSize < 8 ? 8 : previewFontSize;
         }
+
 
         #endregion
 
@@ -732,7 +733,8 @@ namespace ChurchScreen
                     IsOptimalParagraphEnabled = true,
                     IsHyphenationEnabled = true,
                     TextAlignment = TextAlignment.Center,
-                    PagePadding = new Thickness(0, 40, 0, 40)
+                    PagePadding = new Thickness(0) // Убираем отступы
+                    //PagePadding = new Thickness(0, 40, 0, 40)
                 };
             }
             else
@@ -743,7 +745,8 @@ namespace ChurchScreen
                     IsOptimalParagraphEnabled = true,
                     IsHyphenationEnabled = true,
                     TextAlignment = TextAlignment.Center,
-                    PagePadding = new Thickness(0, 5, 0, 5)
+                    PagePadding = new Thickness(0) // Убираем отступы
+                    //PagePadding = new Thickness(0, 5, 0, 5)
                 };
             }
 
