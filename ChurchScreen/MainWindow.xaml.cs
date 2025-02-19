@@ -22,7 +22,7 @@ namespace ChurchScreen
         public ShowScreen sh;
         public ListViewExample lve;
 
-        // Храним «физические» размеры монитора, на котором будет ShowScreen.
+        // Размеры «физические» (пиксели) монитора второго экрана
         private int _monitorWidth;
         private int _monitorHeight;
 
@@ -32,11 +32,17 @@ namespace ChurchScreen
         public MainWindow()
         {
             InitializeComponent();
+
+            // Запрет прокрутки колёсиком в preview
             previewViewer.PreviewMouseWheel += (s, e) => e.Handled = true;
+
+            // Разрешаем чтение кодировок 1251 и т.д.
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+            // Читаем конфиг
             try
             {
-                string settingsPath = System.IO.Path.Combine(Environment.CurrentDirectory, "settings.xml");
+                string settingsPath = Path.Combine(Environment.CurrentDirectory, "settings.xml");
                 if (File.Exists(settingsPath))
                 {
                     var reader = new XmlSerializer(typeof(Configuration));
@@ -58,59 +64,55 @@ namespace ChurchScreen
 
         private void Window_Loaded_1(object sender, RoutedEventArgs e)
         {
-            // Определим мониторы
+            // Определяем мониторы
             Screen[] screens = Screen.AllScreens;
-            // По умолчанию берём первый
-            Screen targetScreen = screens[0];
+            Screen targetScreen = screens[0]; // по умолчанию
 
-            // Если есть два монитора и UseOneMonitor = false, берём второй
+            // Если есть второй — и не установлен UseOneMonitor
             if (!config.UseOneMonitor && screens.Length > 1)
             {
                 targetScreen = screens[1];
             }
 
-            // Запоминаем размеры выбранного монитора (физические пиксели)
+            // Запоминаем «физический» размер
             _monitorWidth = targetScreen.Bounds.Width;
             _monitorHeight = targetScreen.Bounds.Height;
 
-            // Создаём окно ShowScreen (второй монитор)
-            sh = new ShowScreen();
+            // Создаём окно второго монитора
+            sh = new ShowScreen
+            {
+                Left = targetScreen.WorkingArea.X,
+                Top = targetScreen.WorkingArea.Y,
+                Width = targetScreen.Bounds.Width,
+                Height = targetScreen.Bounds.Height
+            };
 
-            // Располагаем его на нужном мониторе, на всю область
-            sh.Left = targetScreen.WorkingArea.X;
-            sh.Top = targetScreen.WorkingArea.Y;
-            sh.Width = targetScreen.Bounds.Width;
-            sh.Height = targetScreen.Bounds.Height;
-
-            // Чтобы FlowDocumentScrollViewer не делил на колонки:
+            // FlowDocument не делим на колонки
             sh.docViewer.Document.ColumnWidth = sh.Width + 150;
 
+            // Пробуем найти «картинки» для фона
             try
             {
-                // Загружаем список фоновых изображений
                 string[] files = Directory.GetFiles("pictures");
                 for (int x = 0; x < files.Length; x++)
                 {
                     backgroundListView.Items.Add(new PicturesFileName(files[x]));
                 }
             }
-            catch(Exception ex) 
-            {
-                ;
-            }
-            if (backgroundListView.Items.Count != 0)
+            catch { /* no op */ }
+
+            if (backgroundListView.Items.Count > 0)
                 backgroundListView.SelectedIndex = 0;
 
-            // Прячем/показываем панель сервиса
-            if (config.AlwaysServiceMode)
-                servicePanel.Visibility = Visibility.Visible;
-            else
-                servicePanel.Visibility = Visibility.Hidden;
+            // Сервисная панель — вкл/выкл
+            servicePanel.Visibility = config.AlwaysServiceMode
+                ? Visibility.Visible
+                : Visibility.Hidden;
 
-            // Установим фон по умолчанию (если есть)
+            // Попробуем поставить фон по умолчанию
             SetDefaultBackground();
 
-            // Показываем окно для второго монитора
+            // Показать окно
             sh.Show();
             this.Activate();
         }
@@ -120,19 +122,12 @@ namespace ChurchScreen
             string filePic = "pictures\\default.jpg";
             bool noDefaultFile = false;
 
-            string fullDefaultPath = System.IO.Path.Combine(
-                System.AppDomain.CurrentDomain.BaseDirectory,
-                filePic
-            );
+            string fullDefaultPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filePic);
 
             if (!File.Exists(fullDefaultPath))
             {
-                // Пробуем default.png
                 filePic = "pictures\\default.png";
-                fullDefaultPath = System.IO.Path.Combine(
-                    System.AppDomain.CurrentDomain.BaseDirectory,
-                    filePic
-                );
+                fullDefaultPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filePic);
             }
             if (!File.Exists(fullDefaultPath))
             {
@@ -141,9 +136,10 @@ namespace ChurchScreen
 
             if (!noDefaultFile)
             {
-                ImageBrush myBrush = new ImageBrush();
-                myBrush.ImageSource = new BitmapImage(new Uri(fullDefaultPath, UriKind.Absolute));
-
+                var myBrush = new ImageBrush
+                {
+                    ImageSource = new BitmapImage(new Uri(fullDefaultPath, UriKind.Absolute))
+                };
                 if (config.StrechFill == 0)
                     myBrush.Stretch = Stretch.Fill;
                 else if (config.StrechFill == 1)
@@ -157,22 +153,25 @@ namespace ChurchScreen
 
         private void Window_Closed_1(object sender, EventArgs e)
         {
-            // Предупреждение о несохранённой песне
+            // Если была несохранённая песня
             if (!SongSaved && config.SaveAsk)
             {
                 if (System.Windows.MessageBox.Show(
                     "Редактируемая песня еще не сохранена. Сохранить?",
                     "Сервисный режим",
-                    MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                    MessageBoxButton.YesNo
+                ) == MessageBoxResult.Yes)
                 {
                     saveFileButton_Click(null, null);
                 }
             }
+
             if (sh != null && sh.IsLoaded)
                 sh.Close();
         }
 
-        #region Показать на втором мониторе
+        #region Кнопка "Показать" (второй монитор)
+
         private void ShowButton_Click_1(object sender, RoutedEventArgs e)
         {
             if (song == null)
@@ -180,57 +179,54 @@ namespace ChurchScreen
                 eButton_Click(null, null);
                 return;
             }
-            // Если нужно, убираем фоновое изображение
+            // Убираем фон, если хотим
             sh.mainScreen.Background = null;
 
             if (IsNewSongLoaded)
                 IsNewSongLoaded = false;
 
-            // Перед выводом на экран — «автоматически» подберём размер шрифта
+            // Автоподбор
             AutoCalculateFontForCurrentBlock();
 
-            // Отображаем текущий блок на втором экране
+            // Устанавливаем документ
             sh.docViewer.Document = song.ToMainScreen();
 
             if (song.IsEnd)
             {
                 HideDocument_Click(null, null);
-                this.songGrid.DataContext = null;
+                songGrid.DataContext = null;
             }
             else
             {
-                // Просто для привязки к интерфейсу
+                // Просто чтобы привязка (DataContext) на что-то смотрела
                 if (sh.docViewer.Document != null)
                 {
                     foreach (var bl in sh.docViewer.Document.Blocks)
                     {
-                        this.songGrid.DataContext = bl;
+                        songGrid.DataContext = bl;
                     }
                 }
             }
         }
+
         #endregion
 
-        #region Автоподбор шрифта (старый подход)
-        /// <summary>
-        /// Пересчитываем размер шрифта для текущего блока,
-        /// используя старый метод CalculateFont() в SongDocument.
-        /// </summary>
+        #region Автоподбор шрифта (старый метод)
+
         private void AutoCalculateFontForCurrentBlock()
         {
             if (song == null || song.BlocksCount == 0) return;
-
-            // Старый метод: CalculateFont для текущего блока
             int newFont = song.CalculateFont();
             song.BlockFontSize = newFont;
         }
+
         #endregion
 
         private void HideDocument_Click(object sender, RoutedEventArgs e)
         {
             sh.docViewer.Document = SongDocument.CleanDocument();
             sh.docViewer.Document.FontSize = 1;
-            this.songGrid.DataContext = null;
+            songGrid.DataContext = null;
         }
 
         private void ExitButton_Click(object sender, RoutedEventArgs e)
@@ -238,7 +234,7 @@ namespace ChurchScreen
             Close();
         }
 
-        #region Кнопки ввода номера песни
+        #region Кнопки ввода номера (eButton_Click и т.д.)
 
         private void eButton_Click(object sender, RoutedEventArgs e)
         {
@@ -248,21 +244,23 @@ namespace ChurchScreen
                 return;
             }
 
-            // Если текущая песня не сохранена
+            // Если есть несохранённая
             if (!SongSaved && config.SaveAsk)
             {
-                if (System.Windows.MessageBox.Show("Редактируемая песня еще не сохранена. Сохранить?",
-                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                if (System.Windows.MessageBox.Show(
+                    "Редактируемая песня еще не сохранена. Сохранить?",
+                    "Сервисный режим",
+                    MessageBoxButton.YesNo
+                ) == MessageBoxResult.Yes)
                 {
                     saveFileButton_Click(null, null);
                 }
             }
 
-            // Дополняем до 4 символов (например "0012")
+            // Дополняем до 4 символов
             fileNameTextBox.Text = fileNameTextBox.Text.PadLeft(4, '0');
 
-            // Определяем DPI для окна ShowScreen (или для this, если хотим)
-            // Обычно берём PresentationSource.FromVisual(sh), т.к. sh уже показано на втором мониторе.
+            // DPI
             var source = PresentationSource.FromVisual(sh);
             if (source != null)
             {
@@ -273,29 +271,36 @@ namespace ChurchScreen
                 double dipWidth = _monitorWidth / dpiX;
                 double dipHeight = _monitorHeight / dpiY;
 
-                song = new SongDocument(fileNameTextBox.Text,
-                                        (int)dipWidth,
-                                        (int)dipHeight,
-                                        config.FontSizeForSplit);
+                // Создаём song
+                song = new SongDocument(
+                    fileNameTextBox.Text,
+                    (int)dipWidth,
+                    (int)dipHeight,
+                    config.FontSizeForSplit
+                );
             }
             else
             {
                 // fallback
-                song = new SongDocument(fileNameTextBox.Text,
-                                        _monitorWidth,
-                                        (int)(_monitorWidth * 9.0 / 16.0),
-                                        config.FontSizeForSplit);
+                song = new SongDocument(
+                    fileNameTextBox.Text,
+                    _monitorWidth,
+                    (int)(_monitorWidth * 9.0 / 16.0),
+                    config.FontSizeForSplit
+                );
             }
 
-
-            // Если файл "сервисный"
+            // Если «сервисный» файл
             if (song.ServiceMode)
             {
                 SongSaved = false;
                 servicePanel.Visibility = Visibility.Visible;
 
-                if (System.Windows.MessageBox.Show("Открываемая песня содержит припев?",
-                    "Сервисный режим", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                if (System.Windows.MessageBox.Show(
+                    "Открываемая песня содержит припев?",
+                    "Сервисный режим",
+                    MessageBoxButton.YesNo
+                ) == MessageBoxResult.Yes)
                 {
                     song.InsertRefrain();
                 }
@@ -312,24 +317,19 @@ namespace ChurchScreen
             currentCoopletLabel.Content = song.CurrentBlockNumber;
             coopletsCountLabel.Content = song.BlocksCount;
 
-            // «Автоподбор» по формуле SongDocument
+            // Автоподбор
             AutoCalculateFontForCurrentBlock();
 
             IsNewSongLoaded = true;
             UpdatePreviewFontSize();
         }
 
-
         private void AddDigit(string digit)
         {
             if (fileNameTextBox.Text.Length < 4)
-            {
                 fileNameTextBox.Text += digit;
-            }
             else
-            {
                 fileNameTextBox.Text = digit;
-            }
         }
 
         private void _0Button_Click(object sender, RoutedEventArgs e) => AddDigit("0");
@@ -342,15 +342,11 @@ namespace ChurchScreen
         private void _7Button_Click(object sender, RoutedEventArgs e) => AddDigit("7");
         private void _8Button_Click(object sender, RoutedEventArgs e) => AddDigit("8");
         private void _9Button_Click(object sender, RoutedEventArgs e) => AddDigit("9");
-
-        private void cButton_Click(object sender, RoutedEventArgs e)
-        {
-            fileNameTextBox.Text = "";
-        }
+        private void cButton_Click(object sender, RoutedEventArgs e) => fileNameTextBox.Text = "";
 
         private void Window_KeyDown_1(object sender, System.Windows.Input.KeyEventArgs e)
         {
-            // Цифры на NumPad
+            // NumPad цифры
             if (e.Key >= Key.NumPad0 && e.Key <= Key.NumPad9)
             {
                 string num = (e.Key - Key.NumPad0).ToString();
@@ -379,7 +375,8 @@ namespace ChurchScreen
 
         private void ToggleServicePanelVisibility()
         {
-            servicePanel.Visibility = servicePanel.Visibility == Visibility.Visible
+            servicePanel.Visibility =
+                servicePanel.Visibility == Visibility.Visible
                 ? Visibility.Hidden
                 : Visibility.Visible;
         }
@@ -443,30 +440,23 @@ namespace ChurchScreen
 
         #endregion
 
-        #region Изменение размера шрифта (кнопки +/-, авто)
+        #region Изменение размера шрифта (+/-) и обновление предпросмотра
 
         private void increaseFontButton_Click(object sender, RoutedEventArgs e)
         {
             if (sh.docViewer.Document?.Blocks == null) return;
 
-            // Для каждого блока в ShowScreen увеличиваем шрифт
-            // (хотя обычно там всего 1 Paragraph, но на всякий случай)
+            // Увеличиваем шрифт на втором экране
             foreach (Block b in sh.docViewer.Document.Blocks)
             {
                 if (b.FontSize < 1000)
                 {
                     b.FontSize += config.FontSizeStep;
-
-                    // Сохраняем новое значение в SongDocument
                     if (song != null && song.BlocksCount > 0)
-                    {
-                        // Запоминаем в объекте SongDocument
                         song.BlockFontSize = (int)b.FontSize;
-                    }
                 }
             }
 
-            // Обновляем предпросмотр, делая «прямое» масштабирование
             UpdatePreviewFontSizeByRatio();
         }
 
@@ -479,11 +469,8 @@ namespace ChurchScreen
                 if (b.FontSize > config.FontSizeStep)
                 {
                     b.FontSize -= config.FontSizeStep;
-
                     if (song != null && song.BlocksCount > 0)
-                    {
                         song.BlockFontSize = (int)b.FontSize;
-                    }
                 }
             }
 
@@ -491,27 +478,22 @@ namespace ChurchScreen
         }
 
         /// <summary>
-        /// Шрифт в previewViewer делаем пропорциональным
-        /// текущему шрифту в SongDocument.BlockFontSize.
+        /// Уменьшаем шрифт в previewViewer пропорционально текущему 
+        /// (song.BlockFontSize) на ShowScreen.
         /// </summary>
         private void UpdatePreviewFontSizeByRatio()
         {
-            if (song == null) return;
-            if (previewViewer?.Document == null) return;
-            if (song.BlocksCount == 0) return;
+            if (song == null || previewViewer?.Document == null || song.BlocksCount == 0) return;
 
-            // «Основной» шрифт (текущего блока) на ShowScreen
             int mainFontSize = song.BlockFontSize;
             if (mainFontSize < 1) mainFontSize = 1;
 
-            // Рассчитываем коэффициент уменьшения 
-            // Допустим, preview шириной 320, а ScreenWidth = song.ScreenWidth
-            // (который мы передали в SongDocument при создании)
+            // Коэффициент (preview шириной 320, делим на реальную ширину DIP)
             double scaleFactor = 320.0 / song.ScreenWidth;
-            if (scaleFactor > 1.0) scaleFactor = 1.0; // На случай очень узкого экрана
+            if (scaleFactor > 1.0) scaleFactor = 1.0; // если экран узкий
 
             double previewSize = mainFontSize * scaleFactor;
-            if (previewSize < 8) previewSize = 8;   // минимальный размер шрифта в превью
+            if (previewSize < 8) previewSize = 8; // минимум 8
 
             foreach (Block block in previewViewer.Document.Blocks)
             {
@@ -519,36 +501,40 @@ namespace ChurchScreen
             }
         }
 
-
-
         private void calculateFontButton_Click(object sender, RoutedEventArgs e)
         {
-            // Перерасчёт шрифта (старый метод)
+            // Старый автоподбор
             AutoCalculateFontForCurrentBlock();
 
-            // Обновляем документ
             if (song != null)
             {
+                // Обновляем второй экран
                 sh.docViewer.Document = song.ToMainScreen();
+                // Обновляем предпросмотр
                 previewViewer.Document = song.CurrentBlock();
+                // И делаем масштабирование
+                UpdatePreviewFontSizeByRatio();
             }
         }
 
         #endregion
 
+        #region Старый метод UpdatePreviewFontSize (для совместимости)
+
+        /// <summary>
+        /// Раньше вы считали previewSize = song.CalculatePreviewFontSize(...),
+        /// теперь вызываем только UpdatePreviewFontSizeByRatio,
+        /// чтобы всё было синхронизировано.
+        /// </summary>
         private void UpdatePreviewFontSize()
         {
-            if (song == null) return;
-            if (previewViewer?.Document == null) return;
-            if (song.BlocksCount == 0) return;
+            if (song == null || previewViewer?.Document == null || song.BlocksCount == 0) return;
 
-            // Считаем «previewSize»
-            int previewSize = song.CalculatePreviewFontSize(song.Blocks[song.CurrentBlockNumber - 1]);
-            foreach (Block block in previewViewer.Document.Blocks)
-            {
-                block.FontSize = previewSize;
-            }
+            // Вместо отдельного рассчёта — сразу делаем ratio:
+            UpdatePreviewFontSizeByRatio();
         }
+
+        #endregion
 
         #region Сохранение
 
@@ -592,19 +578,20 @@ namespace ChurchScreen
         private void listView_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (listView.SelectedItem == null) return;
-            SearchItem sss = (SearchItem)listView.SelectedItem;
+
+            var sss = (SearchItem)listView.SelectedItem;
             fileNameTextBox.Text = sss.SongName;
             eButton_Click(null, null);
         }
 
         private void searchButton_Click(object sender, RoutedEventArgs e)
         {
-            // можете реализовать
+            // ...
         }
 
         private void showExample_Click(object sender, RoutedEventArgs e)
         {
-            ListViewExample lve = new ListViewExample();
+            var lve = new ListViewExample();
             lve.ShowDialog();
         }
 
@@ -615,14 +602,15 @@ namespace ChurchScreen
         private void backgroundListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (backgroundListView.SelectedItem == null) return;
-            PicturesFileName pf = (PicturesFileName)backgroundListView.SelectedItem;
-            string fullName = System.IO.Path.Combine(
-                System.AppDomain.CurrentDomain.BaseDirectory,
+
+            var pf = (PicturesFileName)backgroundListView.SelectedItem;
+            string fullName = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
                 pf.FileName
             );
             if (!File.Exists(fullName)) return;
 
-            BitmapImage bi3 = new BitmapImage();
+            var bi3 = new BitmapImage();
             bi3.BeginInit();
             bi3.UriSource = new Uri(fullName, UriKind.Absolute);
             bi3.CacheOption = BitmapCacheOption.OnLoad;
@@ -643,15 +631,17 @@ namespace ChurchScreen
             if (backgroundListView.SelectedItem == null) return;
             HideDocument_Click(null, null);
 
-            PicturesFileName pf = (PicturesFileName)backgroundListView.SelectedItem;
-            string fullName = System.IO.Path.Combine(
-                System.AppDomain.CurrentDomain.BaseDirectory,
+            var pf = (PicturesFileName)backgroundListView.SelectedItem;
+            string fullName = Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
                 pf.FileName
             );
             if (!File.Exists(fullName)) return;
 
-            ImageBrush myBrush = new ImageBrush();
-            myBrush.ImageSource = new BitmapImage(new Uri(fullName, UriKind.Absolute));
+            var myBrush = new ImageBrush
+            {
+                ImageSource = new BitmapImage(new Uri(fullName, UriKind.Absolute))
+            };
 
             if (config.StrechFill == 0)
                 myBrush.Stretch = Stretch.Fill;
@@ -670,22 +660,19 @@ namespace ChurchScreen
 
         #endregion
 
-        #region Разбивка / отмена разбивки блоков
+        #region Разбивка / отмена (Split) блоков
 
         private void splitBlocks_Click(object sender, RoutedEventArgs e)
         {
             if (song == null) return;
-
             song.SplitLargeBlocksIfNeeded();
 
-            // Обновляем вывод
             sh.docViewer.Document = song.ToMainScreen();
             previewViewer.Document = song.FirstBlock();
 
             currentCoopletLabel.Content = song.CurrentBlockNumber;
             coopletsCountLabel.Content = song.BlocksCount;
 
-            // После разбивки можно заново «автоматически» подобрать шрифт
             AutoCalculateFontForCurrentBlock();
             UpdatePreviewFontSize();
         }
@@ -708,7 +695,6 @@ namespace ChurchScreen
         private void undoCurrentSplitButton_Click(object sender, RoutedEventArgs e)
         {
             if (song == null) return;
-
             song.UndoSplitForBlock(song.CurrentBlockNumber);
 
             sh.docViewer.Document = song.ToMainScreen();

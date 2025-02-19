@@ -11,7 +11,8 @@ using System.Windows.Media;
 namespace ChurchScreen
 {
     /// <summary>
-    /// Класс, отвечающий за загрузку, хранение, вывод и разбивку песен на блоки.
+    /// Класс, отвечающий за загрузку, хранение, вывод и разбивку песен на блоки,
+    /// включая улучшенный расчёт шрифта на основе реального измерения документа (DocumentPaginator).
     /// </summary>
     public class SongDocument
     {
@@ -64,30 +65,14 @@ namespace ChurchScreen
         /// <summary>Флаг, что мы вышли за последний блок (CurrentBlockNumber > BlocksCount).</summary>
         public bool IsEnd => _currentBlockNumber > BlocksCount;
 
-        /// <summary>
-        /// «Вес» символов для расчёта «самой длинной строки» (учёт широких символов).
-        /// </summary>
-        private Dictionary<char, double> widthCoefficients = new Dictionary<char, double>
-        {
-            // Латинские
-            { 'W', 1.5 }, { 'M', 1.4 }, { 'm', 1.3 }, { 'w', 1.3 },
-            { 'i', 0.7 }, { 'l', 0.6 }, { 'j', 0.6 }, { 't', 0.8 }, { 'f', 0.8 }, { 'r', 0.9 },
-            // Кириллические
-            { 'Ш', 1.4 }, { 'М', 1.4 }, { 'м', 1.3 }, { 'ш', 1.3 }, { 'щ', 1.5 }, { 'ф', 1.3 },
-            { 'й', 0.8 }, { 'л', 0.9 }, { 'т', 0.9 }, { 'и', 0.9 },
-            // Цифры/знаки
-            { '1', 0.8 }, { '.', 0.6 }, { ',', 0.6 }, { ':', 0.6 }, { ';', 0.6 }, { '!', 0.7 },
-        };
-
         // Конструктор
         public SongDocument(string fileName, int dipWidth, int dipHeight, int fontSizeForSplit)
         {
             ScreenWidth = dipWidth;
-            _screenHeight = dipHeight; 
+            _screenHeight = dipHeight;
             FontSizeForSplit = fontSizeForSplit;
             Initialize(fileName);
         }
-
 
         #region Инициализация
 
@@ -144,7 +129,6 @@ namespace ChurchScreen
             }
         }
 
-
         public static Encoding GetFileEncoding(string srcFile)
         {
             // Пробуем определить BOM
@@ -174,11 +158,10 @@ namespace ChurchScreen
                     return Encoding.Unicode; // или Encoding.GetEncoding(1200)
             }
 
-            // Если мы сюда дошли – нет BOM, предполагаем «ANSI», 
-            // но в .NET 6 «Encoding.Default» может не быть cp1251. Поэтому берём 1251 (кириллица):
+            // Если мы сюда дошли – нет BOM, предполагаем «ANSI».
+            // Но в .NET 6 Encoding.Default может не быть cp1251, берём 1251:
             return Encoding.GetEncoding(1251);
         }
-
 
         private void LoadTextAndSplitIntoBlocks(string fileData)
         {
@@ -252,8 +235,7 @@ namespace ChurchScreen
                 return result;
             }
 
-            // 1) Разбиваем блок на строки, СТРОГО сохраняя все переводы (StringSplitOptions.None).
-            //    Но для удобства «поделить пополам» можно игнорировать leading/trailing пустые.
+            // 1) Разбиваем блок на строки (сохраняем переводы строк).
             var allLines = block.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
 
             // Уберём лишние пустые строки в начале/конце
@@ -284,7 +266,6 @@ namespace ChurchScreen
             }
 
             // 3) В конец последней строки первой части добавляем " =>"
-            //    без перевода строки
             if (firstLines.Count > 0)
             {
                 int lastIdx = firstLines.Count - 1;
@@ -299,8 +280,6 @@ namespace ChurchScreen
             int font1 = CalculateFont(firstPart);
             if (font1 < FontSizeForSplit)
             {
-                // Если у первой части очень мало строк (1-2) и всё ещё слишком мелко,
-                // можем один раз «разрезать строку» (при необходимости).
                 firstPart = TrySplitSingleLineIfNeeded(firstPart);
                 font1 = CalculateFont(firstPart);
             }
@@ -329,7 +308,6 @@ namespace ChurchScreen
         /// </summary>
         private string TrySplitSingleLineIfNeeded(string halfBlock)
         {
-            // Разбиваем, не убирая пустых строк
             var lines = halfBlock.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
             if (lines.Count > 2)
                 return halfBlock;  // не трогаем, если строк больше 2
@@ -337,7 +315,6 @@ namespace ChurchScreen
             bool changed = false;
             for (int i = 0; i < lines.Count; i++)
             {
-                // Проверяем, достаточно ли мелкий шрифт
                 if (CalculateFont(lines[i]) < FontSizeForSplit && lines[i].Length > 10)
                 {
                     // Разрезаем строку пополам по пробелу
@@ -348,13 +325,12 @@ namespace ChurchScreen
                     }
                     if (half < lines[i].Length)
                     {
-                        // делим
                         string p1 = lines[i].Substring(0, half).TrimEnd();
                         string p2 = lines[i].Substring(half).TrimStart();
 
                         lines[i] = p1;
                         lines.Insert(i + 1, p2);
-                        i++; // пропускаем новую строку
+                        i++;
                         changed = true;
                     }
                 }
@@ -363,7 +339,6 @@ namespace ChurchScreen
             if (!changed)
                 return halfBlock;
 
-            // Если что-то поменяли, склеиваем обратно
             return string.Join(Environment.NewLine, lines);
         }
 
@@ -433,9 +408,84 @@ namespace ChurchScreen
 
         #endregion
 
-        #region Старый метод расчёта шрифта
+        #region Новый метод расчёта шрифта (бинарный поиск + реальный measure)
 
-        /// <summary>Рассчитывает «оптимальный» размер шрифта для текущего блока.</summary>
+        /// <summary>
+        /// Определяет «максимальный» размер шрифта, при котором весь текст умещается
+        /// в области width x height на одной «виртуальной» странице (DocumentPaginator.PageCount == 1).
+        /// </summary>
+        private int CalculateFontSizeForBlock(string block, double width, double height, int minFont = 10, int maxFont = 200)
+        {
+            int left = minFont;
+            int right = maxFont;
+            int bestFit = left;
+
+            while (left <= right)
+            {
+                int mid = (left + right) / 2;
+                if (DoesTextFit(block, width, height, mid))
+                {
+                    bestFit = mid;
+                    left = mid + 1;     // пробуем больше
+                }
+                else
+                {
+                    right = mid - 1;    // уменьшаем
+                }
+            }
+            return bestFit;
+        }
+
+        /// <summary>
+        /// Проверяем, умещается ли строка block целиком на одной странице width x height при fontSize.
+        /// </summary>
+        private bool DoesTextFit(string block, double width, double height, int fontSize)
+        {
+            // Создаём FlowDocument без отступов и колоночной верстки
+            FlowDocument doc = new FlowDocument
+            {
+                FontFamily = new FontFamily("Arial"),
+                FontSize = fontSize,
+                TextAlignment = TextAlignment.Center,
+                PagePadding = new Thickness(0),
+                ColumnGap = 0,
+                ColumnWidth = double.PositiveInfinity
+            };
+
+            // Формируем абзац
+            var paragraph = new Paragraph();
+            // Разбиваем по строкам (с учётом, если нужно, пустых)
+            var lines = block.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                paragraph.Inlines.Add(new Run(line));
+                paragraph.Inlines.Add(new LineBreak());
+            }
+            doc.Blocks.Add(paragraph);
+
+            // Устанавливаем виртуальный размер страницы
+            doc.PageWidth = width;
+            doc.PageHeight = height;
+
+            // Получаем paginator
+            DocumentPaginator paginator = ((IDocumentPaginatorSource)doc).DocumentPaginator;
+            paginator.PageSize = new Size(width, height);
+
+            // Обновляем кол-во страниц
+            paginator.ComputePageCount();
+
+            // Если больше 1 страницы - не умещается
+            return paginator.PageCount <= 1;
+        }
+
+        #endregion
+
+        #region Обёртки для удобного вызова
+
+        /// <summary>
+        /// Рассчитывает оптимальный размер шрифта для текущего блока
+        /// (использует размеры _screenWidth / _screenHeight).
+        /// </summary>
         public int CalculateFont()
         {
             if (BlocksCount == 0 || CurrentBlockNumber == 0)
@@ -445,69 +495,28 @@ namespace ChurchScreen
         }
 
         /// <summary>
-        /// «Старая» логика: ищем самую длинную строку (учитывая «вес» символов),
-        /// рассчитываем fontSizeByWidth, дополнительно корректируем по числу строк.
+        /// То же самое, но для произвольного блока (строки).
         /// </summary>
         private int CalculateFont(string block)
         {
-            if (string.IsNullOrWhiteSpace(block))
-                return 90;
-
-            // Разбиваем по переводам строк
-            var lines = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
-            // Самая длинная по «взвешенной» длине
-            double weightedLength = 0;
-            var maxLine = lines.OrderByDescending(s => s.Length).FirstOrDefault() ?? "";
-            foreach (char c in maxLine)
-            {
-                if (widthCoefficients.TryGetValue(c, out double coeff))
-                    weightedLength += coeff;
-                else
-                    weightedLength += 1.0;
-            }
-
-            // 1) Подбираем fontSize «по ширине»
-            //    Предположим, что «1 весовая единица» ~ fontSize * 0.6 DIP
-            //    => Для maxLine «weightedLength» весовых символов нужно weightedLength*(fontSize*0.6) DIP
-            //    => это не должно превышать ScreenWidth
-            //    => fontSize <= ScreenWidth / (weightedLength*0.6)
-            double fontSizeByWidth = ScreenWidth / (weightedLength * 0.6);
-            if (fontSizeByWidth < 1) fontSizeByWidth = 1;
-
-            // 2) «Подбираем» с учётом количества строк:
-            //    Пусть каждая строка ~ fontSize*(1.5) DIP по высоте (коэффициент межстрочного интервала)
-            //    => общий текст занимает lines.Length*(fontSize*1.5)
-            //    => это не должно превышать _screenHeight
-            //    => fontSize <= _screenHeight / (lines.Length*1.5)
-            //double fontSizeByHeight = _screenHeight / (lines.Length * 1.5);
-            double fontSizeByHeight = _screenHeight / lines.Length;
-
-            if (fontSizeByHeight < 1) fontSizeByHeight = 1;
-
-            // 3) Итоговый fontSize — минимум из двух «по ширине» и «по высоте»
-            double final = Math.Min(fontSizeByWidth, fontSizeByHeight);
-
-            // Защита от «слишком маленького»
-            if (final < 10) final = 10;
-            if (final > 1000) final = 1000;
-
-            return (int)final;
+            // Вызываем бинарный поиск
+            return CalculateFontSizeForBlock(block, ScreenWidth, _screenHeight);
         }
 
-
         /// <summary>
-        /// Уменьшенный шрифт для предпросмотра.
+        /// Аналогично, но для предпросмотра (можно передавать фиксированную ширину previewViewer).
+        /// Если у вас previewViewer.Width = 320, previewViewer.Height = 180 и т.д.,
+        /// подставьте сюда реальные размеры.
         /// </summary>
         public int CalculatePreviewFontSize(string block)
         {
-            int mainFontSize = CalculateFont(block);
-            // previewViewer.Width (например, 321 DIP) – это ширина, в которой будет показан уменьшённый текст.
-            double scaleFactor = 321.0 / ScreenWidth;
-            int previewFontSize = (int)(mainFontSize * scaleFactor);
-            return previewFontSize < 8 ? 8 : previewFontSize;
-        }
+            // Допустим, фиксированная ширина 321, высота 181 (пример).
+            // При желании можете вычислять/привязывать реальные размеры previewViewer.
+            double previewWidth = 321;
+            double previewHeight = 181;
 
+            return CalculateFontSizeForBlock(block, previewWidth, previewHeight);
+        }
 
         #endregion
 
@@ -650,31 +659,25 @@ namespace ChurchScreen
                 // Если текущий блок заканчивается на " =>" и есть следующий
                 if (currentBlock.EndsWith("=>") && (i + 1) < Blocks.Count)
                 {
-                    // Удаляем " =>" из конца, срезаем хвостовые пробелы
+                    // Удаляем " =>" из конца
                     string mergedFirstPart = currentBlock.Replace("=>", "").TrimEnd();
 
-                    // Склеиваем с блоком i+1, разделяя переводом строки
+                    // Склеиваем с блоком i+1
                     string combined = mergedFirstPart
                                       + Environment.NewLine
                                       + Blocks[i + 1];
 
-                    // Пересчитаем шрифт для объединённого блока
                     int combinedFont = CalculateFont(combined);
 
-                    // Добавляем склеенный блок в «восстановленный» список
                     restoredBlocks.Add(combined);
                     restoredFonts.Add(combinedFont);
 
-                    // Пропускаем блок i+1, т.к. он уже «поглощён»
                     i += 2;
                 }
                 else
                 {
-                    // Если нет признака " =>" или нет следующего блока,
-                    // просто добавляем блок, как есть
                     restoredBlocks.Add(currentBlock);
                     restoredFonts.Add(_blocksFontSizes[i]);
-
                     i++;
                 }
             }
@@ -682,11 +685,8 @@ namespace ChurchScreen
             Blocks = restoredBlocks;
             _blocksFontSizes = restoredFonts;
 
-            AddEndSymbols(); // возвращаем "* * *", если надо
+            AddEndSymbols();
         }
-
-
-
 
         /// <summary>
         /// Отменить разбивку только одного блока (если " =>" в конце).
@@ -696,9 +696,9 @@ namespace ChurchScreen
             if (blockNumber <= 0 || blockNumber > BlocksCount) return;
             RemoveEndSymbols();
 
-            if (Blocks[blockNumber - 1].EndsWith(" =>") && blockNumber < BlocksCount)
+            if (Blocks[blockNumber - 1].EndsWith("=>") && blockNumber < BlocksCount)
             {
-                string firstHalf = Blocks[blockNumber - 1].Replace(" =>", "").TrimEnd();
+                string firstHalf = Blocks[blockNumber - 1].Replace("=>", "").TrimEnd();
                 string combined = firstHalf
                                   + Environment.NewLine
                                   + Blocks[blockNumber];
@@ -720,56 +720,41 @@ namespace ChurchScreen
 
         /// <summary>
         /// Возвращает FlowDocument для блока (blockIndex).
-        /// Если previewMode = true, используем уменьшенный шрифт (CalculatePreviewFontSize).
+        /// Если previewMode = true, используем расчёт шрифта для предпросмотра (CalculatePreviewFontSize).
+        /// Иначе берём хранимый _blocksFontSizes (или пересчитываем).
         /// </summary>
         private FlowDocument GetDocument(int blockIndex, bool previewMode)
         {
-            FlowDocument doc;
-            if (!previewMode)
+            FlowDocument doc = new FlowDocument
             {
-                doc = new FlowDocument
-                {
-                    FontFamily = new FontFamily("Arial"),
-                    IsOptimalParagraphEnabled = true,
-                    IsHyphenationEnabled = true,
-                    TextAlignment = TextAlignment.Center,
-                    PagePadding = new Thickness(0) // Убираем отступы
-                    //PagePadding = new Thickness(0, 40, 0, 40)
-                };
-            }
-            else
-            {
-                doc = new FlowDocument
-                {
-                    FontFamily = new FontFamily("Arial"),
-                    IsOptimalParagraphEnabled = true,
-                    IsHyphenationEnabled = true,
-                    TextAlignment = TextAlignment.Center,
-                    PagePadding = new Thickness(0) // Убираем отступы
-                    //PagePadding = new Thickness(0, 5, 0, 5)
-                };
-            }
+                FontFamily = new FontFamily("Arial"),
+                IsOptimalParagraphEnabled = true,
+                IsHyphenationEnabled = true,
+                TextAlignment = TextAlignment.Center,
+                PagePadding = new Thickness(0),  // без отступов
+                ColumnGap = 0,
+                ColumnWidth = double.PositiveInfinity
+            };
 
             if (blockIndex <= 0 || blockIndex > BlocksCount)
                 return doc; // пусто
 
             string block = Blocks[blockIndex - 1];
-            int fontSize = previewMode
-                ? CalculatePreviewFontSize(block)
-                : _blocksFontSizes[blockIndex - 1];
-
-            if (fontSize <= 0)
-                fontSize = CalculateFont(block);
+            int fontSize;
+            if (previewMode)
+            {
+                fontSize = CalculatePreviewFontSize(block);
+            }
+            else
+            {
+                int storedSize = _blocksFontSizes[blockIndex - 1];
+                fontSize = storedSize > 0 ? storedSize : CalculateFont(block);
+            }
 
             var paragraph = new Paragraph { FontSize = fontSize };
 
-            // Разбиваем на строки, убирая (StringSplitOptions.None) только если
-            // хотим сохранить абсолютно все переводы. Но исторически:
-            //  "Старый подход" skip пустые:
-            //    var lines = block.Split(new[] {'#','\r','\n'}, StringSplitOptions.RemoveEmptyEntries);
-            // Если хотим оставить все, делаем None. Ниже оставим, как в "старом" коде.
+            // Разбиваем на строки (старый подход - убираем пустые).
             var lines = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-
             foreach (string line in lines)
             {
                 paragraph.Inlines.Add(new Bold(new Run(line)));
@@ -791,7 +776,10 @@ namespace ChurchScreen
                 FontFamily = new FontFamily("Arial"),
                 IsOptimalParagraphEnabled = true,
                 IsHyphenationEnabled = true,
-                TextAlignment = TextAlignment.Center
+                TextAlignment = TextAlignment.Center,
+                PagePadding = new Thickness(0),
+                ColumnGap = 0,
+                ColumnWidth = double.PositiveInfinity
             };
 
             var paragraph = new Paragraph();
@@ -800,7 +788,6 @@ namespace ChurchScreen
             return document;
         }
 
-        
         #endregion
 
         #region Вспомогательные

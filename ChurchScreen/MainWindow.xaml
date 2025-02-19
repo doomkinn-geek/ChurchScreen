@@ -283,11 +283,12 @@
 
                 <!-- Предпросмотр FlowDocument -->
                 <StackPanel Grid.Column="1"
-                            Grid.Row="1">
+                            Grid.Row="1"
+                            Margin="0,20,0,0">
                     <FlowDocumentScrollViewer x:Name="previewViewer"
-                                              Margin="0,20,0,0"
-                                              Width="321"
-                                              Height="181"
+                                              
+                                              Width="332"
+                                              Height="192"
                                               IsSelectionEnabled="False"
                                               HorizontalContentAlignment="Center"
                                               VerticalContentAlignment="Center"
