@@ -13,6 +13,7 @@ namespace ChurchScreen
     /// <summary>
     /// Класс, отвечающий за загрузку, хранение, вывод и разбивку песен на блоки,
     /// включая улучшенный расчёт шрифта на основе реального измерения документа (DocumentPaginator).
+    /// Если в файле уже указаны размеры шрифтов, они используются.
     /// </summary>
     public class SongDocument
     {
@@ -25,19 +26,20 @@ namespace ChurchScreen
         /// <summary>Основной список текстовых блоков (куплетов/строк) песни.</summary>
         public List<string> Blocks { get; private set; }
 
-        /// <summary>Размер шрифта для каждого блока (в старом формате @NN#FFF...$NN).</summary>
+        /// <summary>Список размеров шрифта для каждого блока.
+        /// Если в файле размер не указан, хранится -1 и затем рассчитывается.</summary>
         private List<int> _blocksFontSizes;
 
-        /// <summary>«Ширина экрана» (в пикселях или DIP), нужна для расчёта шрифта.</summary>
+        /// <summary>«Ширина экрана» (в пикселях или DIP), используется для расчёта шрифта.</summary>
         public int ScreenWidth { get; private set; }
 
-        /// <summary>Порог шрифта: если CalculateFont(block) < FontSizeForSplit => блок «слишком большой».</summary>
+        /// <summary>Порог шрифта: если CalculateFont(block) < FontSizeForSplit, блок считается «слишком большим».</summary>
         public int FontSizeForSplit { get; private set; }
 
-        /// <summary>Число блоков.</summary>
+        /// <summary>Количество блоков.</summary>
         public int BlocksCount => Blocks?.Count ?? 0;
 
-        /// <summary>Текущий (1-based), не более BlocksCount.</summary>
+        /// <summary>Номер текущего блока (1-based), не больше BlocksCount.</summary>
         public int CurrentBlockNumber
         {
             get
@@ -47,13 +49,16 @@ namespace ChurchScreen
             }
         }
 
-        /// <summary>Шрифт для текущего блока.</summary>
+        /// <summary>Размер шрифта для текущего блока.
+        /// Если в файле размер указан (значение > 0), то он используется, иначе – рассчитывается.</summary>
         public int BlockFontSize
         {
             get
             {
                 if (CurrentBlockNumber == 0) return 0;
-                return _blocksFontSizes[CurrentBlockNumber - 1];
+                return _blocksFontSizes[CurrentBlockNumber - 1] > 0
+                    ? _blocksFontSizes[CurrentBlockNumber - 1]
+                    : CalculateFont();
             }
             set
             {
@@ -80,19 +85,15 @@ namespace ChurchScreen
         {
             if (string.IsNullOrWhiteSpace(fileName)) return;
 
-            // Дополняем ".txt" если нужно
+            // Дополняем ".txt", если нужно
             FileName = fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)
                 ? fileName
                 : fileName + ".txt";
 
-            // Если нет файла, пробуем в папке "songs"
+            // Если файла нет, пробуем в папке "songs"
             if (!File.Exists(FileName))
             {
-                FileName = System.IO.Path.Combine(
-                    Environment.CurrentDirectory,
-                    "songs",
-                    System.IO.Path.GetFileName(FileName)
-                );
+                FileName = Path.Combine(Environment.CurrentDirectory, "songs", Path.GetFileName(FileName));
                 if (!File.Exists(FileName)) return;
             }
 
@@ -103,7 +104,7 @@ namespace ChurchScreen
             string fileData = ReadFileContent(FileName);
             if (string.IsNullOrEmpty(fileData)) return;
 
-            // Если нет "@01", считаем ServiceMode
+            // Если нет "@01", считаем, что это сервисный режим
             ServiceMode = !fileData.Contains("@01");
 
             if (ServiceMode)
@@ -111,7 +112,6 @@ namespace ChurchScreen
             else
                 LoadTextAndSplitIntoBlocks(fileData);
 
-            // Добавим "* * *" в конец (если нужно)
             AddEndSymbols();
         }
 
@@ -120,7 +120,6 @@ namespace ChurchScreen
             try
             {
                 Encoding encoding = GetFileEncoding(filePath);
-                // Прямо используем эту «нашу» кодировку
                 return File.ReadAllText(filePath, encoding);
             }
             catch
@@ -131,40 +130,29 @@ namespace ChurchScreen
 
         public static Encoding GetFileEncoding(string srcFile)
         {
-            // Пробуем определить BOM
             using (var file = new FileStream(srcFile, FileMode.Open, FileAccess.Read))
             {
                 var buffer = new byte[5];
                 file.Read(buffer, 0, 5);
 
-                // UTF-8 BOM
                 if (buffer[0] == 0xef && buffer[1] == 0xbb && buffer[2] == 0xbf)
                     return Encoding.UTF8;
-
-                // Unicode (Big Endian)
                 if (buffer[0] == 0xfe && buffer[1] == 0xff)
-                    return Encoding.BigEndianUnicode;  // или Encoding.GetEncoding(1201);
-
-                // UTF-32
+                    return Encoding.BigEndianUnicode;
                 if (buffer[0] == 0 && buffer[1] == 0 && buffer[2] == 0xfe && buffer[3] == 0xff)
                     return Encoding.UTF32;
-
-                // UTF-7
                 if (buffer[0] == 0x2b && buffer[1] == 0x2f && buffer[2] == 0x76)
                     return Encoding.UTF7;
-
-                // UTF-16 (LE)
                 if (buffer[0] == 0xFF && buffer[1] == 0xFE)
-                    return Encoding.Unicode; // или Encoding.GetEncoding(1200)
+                    return Encoding.Unicode;
             }
-
-            // Если мы сюда дошли – нет BOM, предполагаем «ANSI».
-            // Но в .NET 6 Encoding.Default может не быть cp1251, берём 1251:
+            // Если не определили BOM – возвращаем cp1251 (кириллица)
             return Encoding.GetEncoding(1251);
         }
 
         private void LoadTextAndSplitIntoBlocks(string fileData)
         {
+            // Используем регулярное выражение для стандартного формата:
             var pattern = @"@\d{2}#(\d{3})(.*?)\$\d{2}";
             var matches = Regex.Matches(fileData, pattern, RegexOptions.Singleline);
 
@@ -186,11 +174,10 @@ namespace ChurchScreen
 
         private void LoadTextByEmptyLines(string fileData)
         {
-            // Разбиваем «блоки» по двум переводам строки
-            var rawBlocks = fileData
-                .Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries)
-                .Select(b => b.Trim())
-                .ToArray();
+            // Разбиваем на блоки по двойным переводам строки
+            var rawBlocks = fileData.Split(new[] { "\r\n\r\n", "\n\n" }, StringSplitOptions.RemoveEmptyEntries)
+                                     .Select(b => b.Trim())
+                                     .ToArray();
 
             foreach (string rawBlock in rawBlocks)
             {
@@ -214,20 +201,14 @@ namespace ChurchScreen
 
         #endregion
 
-        #region Разбивка слишком большого блока (только пополам)
+        #region Разбивка слишком большого блока (пополам)
 
-        /// <summary>
-        /// Если CalculateFont(block) < FontSizeForSplit => делим блок ровно на 2 части (по числу строк).
-        /// В конец первой части добавляем " =>" (без лишних переводов строки).
-        /// Кроме того, если часть очень мала (1-2 строки) и всё ещё не «влезает»,
-        /// можем один раз разрезать конкретную строку пополам.
-        /// </summary>
         private List<string> SplitBlockIfNecessary(string block, out List<int> fontSizes)
         {
             var result = new List<string>();
             fontSizes = new List<int>();
 
-            // Если шрифт «достаточный» => не делим
+            // Если рассчитанный шрифт подходит, блок не делим
             if (CalculateFont(block) >= FontSizeForSplit)
             {
                 result.Add(block);
@@ -235,48 +216,39 @@ namespace ChurchScreen
                 return result;
             }
 
-            // 1) Разбиваем блок на строки (сохраняем переводы строк).
+            // Разбиваем блок на строки с сохранением переводов
             var allLines = block.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
-
-            // Уберём лишние пустые строки в начале/конце
             while (allLines.Count > 0 && string.IsNullOrWhiteSpace(allLines[0]))
                 allLines.RemoveAt(0);
-            while (allLines.Count > 0 && string.IsNullOrWhiteSpace(allLines[allLines.Count - 1]))
+            while (allLines.Count > 0 && string.IsNullOrWhiteSpace(allLines.Last()))
                 allLines.RemoveAt(allLines.Count - 1);
 
             if (allLines.Count == 0)
             {
-                // Пустой блок?
                 result.Add(block);
                 fontSizes.Add(CalculateFont(block));
                 return result;
             }
 
-            // 2) Делим по числу строк пополам
-            int mid = allLines.Count / 2;  // целочисленно
+            int mid = allLines.Count / 2;
             var firstLines = allLines.Take(mid).ToList();
             var secondLines = allLines.Skip(mid).ToList();
 
-            // Гарантируем, что в первой части есть хотя бы 1 строка
             if (firstLines.Count == 0)
             {
-                // Перестраховка, если строк было очень мало
                 firstLines.Add(secondLines[0]);
                 secondLines.RemoveAt(0);
             }
 
-            // 3) В конец последней строки первой части добавляем " =>"
             if (firstLines.Count > 0)
             {
                 int lastIdx = firstLines.Count - 1;
                 firstLines[lastIdx] = firstLines[lastIdx] + " =>";
             }
 
-            // 4) Собираем «половинки» обратно
             string firstPart = string.Join(Environment.NewLine, firstLines);
             string secondPart = string.Join(Environment.NewLine, secondLines);
 
-            // 5) Проверяем, не слишком ли маленький шрифт у первой части
             int font1 = CalculateFont(firstPart);
             if (font1 < FontSizeForSplit)
             {
@@ -284,7 +256,6 @@ namespace ChurchScreen
                 font1 = CalculateFont(firstPart);
             }
 
-            // Аналогично для второй части
             int font2 = CalculateFont(secondPart);
             if (font2 < FontSizeForSplit)
             {
@@ -292,42 +263,30 @@ namespace ChurchScreen
                 font2 = CalculateFont(secondPart);
             }
 
-            // Добавляем в результат ровно 2 части
             result.Add(firstPart);
             fontSizes.Add(font1);
-
             result.Add(secondPart);
             fontSizes.Add(font2);
-
             return result;
         }
 
-        /// <summary>
-        /// Если часть состоит из 1-2 строк и всё ещё «не влезает»,
-        /// пытаемся разрезать каждую строку ровно один раз посередине (по ближайшему пробелу).
-        /// </summary>
         private string TrySplitSingleLineIfNeeded(string halfBlock)
         {
             var lines = halfBlock.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None).ToList();
             if (lines.Count > 2)
-                return halfBlock;  // не трогаем, если строк больше 2
-
+                return halfBlock;
             bool changed = false;
             for (int i = 0; i < lines.Count; i++)
             {
                 if (CalculateFont(lines[i]) < FontSizeForSplit && lines[i].Length > 10)
                 {
-                    // Разрезаем строку пополам по пробелу
                     int half = lines[i].Length / 2;
                     while (half < lines[i].Length && lines[i][half] != ' ')
-                    {
                         half++;
-                    }
                     if (half < lines[i].Length)
                     {
                         string p1 = lines[i].Substring(0, half).TrimEnd();
                         string p2 = lines[i].Substring(half).TrimStart();
-
                         lines[i] = p1;
                         lines.Insert(i + 1, p2);
                         i++;
@@ -335,11 +294,7 @@ namespace ChurchScreen
                     }
                 }
             }
-
-            if (!changed)
-                return halfBlock;
-
-            return string.Join(Environment.NewLine, lines);
+            return changed ? string.Join(Environment.NewLine, lines) : halfBlock;
         }
 
         #endregion
@@ -350,7 +305,6 @@ namespace ChurchScreen
         {
             if (BlocksCount == 0)
                 return CreateDocumentWithText("<ПУСТО>");
-
             _currentBlockNumber = 1;
             return GetDocument(_currentBlockNumber, previewMode: true);
         }
@@ -359,7 +313,6 @@ namespace ChurchScreen
         {
             if (BlocksCount == 0)
                 return CreateDocumentWithText("<ПУСТО>");
-
             return GetDocument(CurrentBlockNumber, previewMode: true);
         }
 
@@ -367,13 +320,11 @@ namespace ChurchScreen
         {
             if (BlocksCount == 0)
                 return CreateDocumentWithText("<ПУСТО>");
-
             if (_currentBlockNumber >= BlocksCount)
             {
                 _currentBlockNumber = BlocksCount + 1;
                 return CreateDocumentWithText("<КОНЕЦ>");
             }
-
             _currentBlockNumber++;
             return GetDocument(_currentBlockNumber, previewMode: true);
         }
@@ -382,13 +333,11 @@ namespace ChurchScreen
         {
             if (BlocksCount == 0)
                 return CreateDocumentWithText("<ПУСТО>");
-
             if (_currentBlockNumber <= 1)
             {
                 _currentBlockNumber = 1;
                 return GetDocument(_currentBlockNumber, previewMode: true);
             }
-
             _currentBlockNumber--;
             return GetDocument(_currentBlockNumber, previewMode: true);
         }
@@ -397,51 +346,43 @@ namespace ChurchScreen
         {
             if (BlocksCount == 0)
                 return CreateDocumentWithText("<ПУСТО>");
-
             return GetDocument(CurrentBlockNumber, previewMode: false);
         }
 
-        public static FlowDocument CleanDocument()
-        {
-            return new FlowDocument();
-        }
+        public static FlowDocument CleanDocument() => new FlowDocument();
 
         #endregion
 
-        #region Новый метод расчёта шрифта (бинарный поиск + реальный measure)
+        #region Новый метод расчёта шрифта (бинарный поиск + measure)
 
         /// <summary>
-        /// Определяет «максимальный» размер шрифта, при котором весь текст умещается
-        /// в области width x height на одной «виртуальной» странице (DocumentPaginator.PageCount == 1).
+        /// Определяет оптимальный размер шрифта, при котором весь текст умещается в области width x height
+        /// на одной странице (DocumentPaginator.PageCount == 1) с использованием бинарного поиска.
         /// </summary>
         private int CalculateFontSizeForBlock(string block, double width, double height, int minFont = 10, int maxFont = 200)
         {
-            int left = minFont;
-            int right = maxFont;
-            int bestFit = left;
-
+            int left = minFont, right = maxFont, bestFit = left;
             while (left <= right)
             {
                 int mid = (left + right) / 2;
                 if (DoesTextFit(block, width, height, mid))
                 {
                     bestFit = mid;
-                    left = mid + 1;     // пробуем больше
+                    left = mid + 1;
                 }
                 else
                 {
-                    right = mid - 1;    // уменьшаем
+                    right = mid - 1;
                 }
             }
             return bestFit;
         }
 
         /// <summary>
-        /// Проверяем, умещается ли строка block целиком на одной странице width x height при fontSize.
+        /// Проверяет, умещается ли текст block при fontSize на странице размером width x height.
         /// </summary>
         private bool DoesTextFit(string block, double width, double height, int fontSize)
         {
-            // Создаём FlowDocument без отступов и колоночной верстки
             FlowDocument doc = new FlowDocument
             {
                 FontFamily = new FontFamily("Arial"),
@@ -452,9 +393,7 @@ namespace ChurchScreen
                 ColumnWidth = double.PositiveInfinity
             };
 
-            // Формируем абзац
             var paragraph = new Paragraph();
-            // Разбиваем по строкам (с учётом, если нужно, пустых)
             var lines = block.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (string line in lines)
             {
@@ -462,69 +401,60 @@ namespace ChurchScreen
                 paragraph.Inlines.Add(new LineBreak());
             }
             doc.Blocks.Add(paragraph);
-
-            // Устанавливаем виртуальный размер страницы
             doc.PageWidth = width;
             doc.PageHeight = height;
 
-            // Получаем paginator
             DocumentPaginator paginator = ((IDocumentPaginatorSource)doc).DocumentPaginator;
             paginator.PageSize = new Size(width, height);
-
-            // Обновляем кол-во страниц
             paginator.ComputePageCount();
-
-            // Если больше 1 страницы - не умещается
             return paginator.PageCount <= 1;
         }
 
         #endregion
 
-        #region Обёртки для удобного вызова
+        #region Обёртки для удобного вызова расчёта шрифта
 
         /// <summary>
-        /// Рассчитывает оптимальный размер шрифта для текущего блока
-        /// (использует размеры _screenWidth / _screenHeight).
+        /// Рассчитывает оптимальный размер шрифта для текущего блока.
+        /// Если в файле для этого блока уже указан размер (значение > 0), возвращается он.
         /// </summary>
         public int CalculateFont()
         {
             if (BlocksCount == 0 || CurrentBlockNumber == 0)
                 return 90;
-
-            return CalculateFont(Blocks[CurrentBlockNumber - 1]);
+            int stored = _blocksFontSizes[CurrentBlockNumber - 1];
+            return stored > 0 ? stored : CalculateFont(Blocks[CurrentBlockNumber - 1]);
         }
 
         /// <summary>
-        /// То же самое, но для произвольного блока (строки).
+        /// Рассчитывает размер шрифта для заданного блока.
+        /// Используется бинарный поиск, если размер не был указан.
         /// </summary>
         private int CalculateFont(string block)
         {
-            // Вызываем бинарный поиск
+            if (string.IsNullOrWhiteSpace(block)) return 90;
             return CalculateFontSizeForBlock(block, ScreenWidth, _screenHeight);
         }
 
         /// <summary>
-        /// Аналогично, но для предпросмотра (можно передавать фиксированную ширину previewViewer).
-        /// Если у вас previewViewer.Width = 320, previewViewer.Height = 180 и т.д.,
-        /// подставьте сюда реальные размеры.
+        /// Рассчитывает размер шрифта для предпросмотра.
+        /// Если для блока уже задан размер (не –1), он используется, иначе – вычисляется
+        /// с параметрами, характерными для previewViewer.
         /// </summary>
         public int CalculatePreviewFontSize(string block)
         {
-            // Допустим, фиксированная ширина 321, высота 181 (пример).
-            // При желании можете вычислять/привязывать реальные размеры previewViewer.
-            double previewWidth = 321;
-            double previewHeight = 181;
-
+            // Если размер уже задан для текущего блока, используем его.
+            int stored = _blocksFontSizes[CurrentBlockNumber - 1];
+            if (stored > 0)
+                return stored;
+            double previewWidth = 321, previewHeight = 181;
             return CalculateFontSizeForBlock(block, previewWidth, previewHeight);
         }
 
         #endregion
 
-        #region Сохранение, припев, SplitLargeBlocksIfNeeded, UndoSplit...
+        #region Сохранение, припев, разбивка блоков и отмена разбивки
 
-        /// <summary>
-        /// Сохранение песни в формате @NN#FFF(текст)$NN.
-        /// </summary>
         public bool SaveSong()
         {
             if (BlocksCount == 0)
@@ -538,7 +468,6 @@ namespace ChurchScreen
                         int fs = _blocksFontSizes[i];
                         if (fs <= 0)
                             fs = CalculateFont(Blocks[i]);
-
                         string str = $"@{(i + 1):00}#{fs:000}{Blocks[i]}${(i + 1):00}";
                         writer.Write(str);
                     }
@@ -551,15 +480,11 @@ namespace ChurchScreen
             }
         }
 
-        /// <summary>
-        /// Примерная вставка «припева».
-        /// </summary>
         public void InsertRefrain()
         {
             if (BlocksCount < 2) return;
-            RemoveEndSymbols();
-
             var refrainBlocks = new List<string>();
+            // Если первый блок заканчивается на " =>", берем 3-й и 4-й, иначе – второй блок
             if (Blocks[0].EndsWith(" =>"))
             {
                 if (BlocksCount > 3)
@@ -570,18 +495,14 @@ namespace ChurchScreen
             }
             else
             {
-                // Иначе второй блок
                 refrainBlocks.Add(Blocks[1]);
             }
-
             var updated = new List<string>();
             var updatedFonts = new List<int>();
-
             for (int i = 0; i < Blocks.Count; i++)
             {
                 updated.Add(Blocks[i]);
                 updatedFonts.Add(_blocksFontSizes[i]);
-
                 bool isCurRef = refrainBlocks.Contains(Blocks[i]);
                 bool nextRef = (i + 1 < Blocks.Count) && refrainBlocks.Contains(Blocks[i + 1]);
                 if (!isCurRef && !nextRef)
@@ -593,30 +514,22 @@ namespace ChurchScreen
                     }
                 }
             }
-
             Blocks = updated;
             _blocksFontSizes = updatedFonts;
             AddEndSymbols();
         }
 
-        /// <summary>
-        /// Разбиваем все большие блоки (если шрифт слишком мелкий).
-        /// </summary>
         public void SplitLargeBlocksIfNeeded()
         {
             if (BlocksCount == 0) return;
-
             RemoveEndSymbols();
-            // Если уже есть " =>" — считаем, что уже разбивали
             if (Blocks.Any(s => s.EndsWith(" =>")))
             {
                 AddEndSymbols();
                 return;
             }
-
             var newBlocks = new List<string>();
             var newFonts = new List<int>();
-
             for (int i = 0; i < Blocks.Count; i++)
             {
                 string block = Blocks[i];
@@ -633,45 +546,28 @@ namespace ChurchScreen
                     newFonts.Add(recFont);
                 }
             }
-
             Blocks = newBlocks;
             _blocksFontSizes = newFonts;
             AddEndSymbols();
         }
 
-        /// <summary>
-        /// Так как мы храним " =>" в конце первой половины, можно сделать UndoSplit,
-        /// склеивая пары блоков. Если нужно.
-        /// </summary>
         public void UndoSplitBlocks()
         {
             if (BlocksCount == 0) return;
-            RemoveEndSymbols(); // убираем "* * *" из конца, если есть
-
+            RemoveEndSymbols();
             var restoredBlocks = new List<string>();
             var restoredFonts = new List<int>();
-
             int i = 0;
             while (i < Blocks.Count)
             {
                 string currentBlock = Blocks[i];
-
-                // Если текущий блок заканчивается на " =>" и есть следующий
                 if (currentBlock.EndsWith("=>") && (i + 1) < Blocks.Count)
                 {
-                    // Удаляем " =>" из конца
                     string mergedFirstPart = currentBlock.Replace("=>", "").TrimEnd();
-
-                    // Склеиваем с блоком i+1
-                    string combined = mergedFirstPart
-                                      + Environment.NewLine
-                                      + Blocks[i + 1];
-
+                    string combined = mergedFirstPart + Environment.NewLine + Blocks[i + 1];
                     int combinedFont = CalculateFont(combined);
-
                     restoredBlocks.Add(combined);
                     restoredFonts.Add(combinedFont);
-
                     i += 2;
                 }
                 else
@@ -681,36 +577,25 @@ namespace ChurchScreen
                     i++;
                 }
             }
-
             Blocks = restoredBlocks;
             _blocksFontSizes = restoredFonts;
-
             AddEndSymbols();
         }
 
-        /// <summary>
-        /// Отменить разбивку только одного блока (если " =>" в конце).
-        /// </summary>
         public void UndoSplitForBlock(int blockNumber)
         {
             if (blockNumber <= 0 || blockNumber > BlocksCount) return;
             RemoveEndSymbols();
-
             if (Blocks[blockNumber - 1].EndsWith("=>") && blockNumber < BlocksCount)
             {
                 string firstHalf = Blocks[blockNumber - 1].Replace("=>", "").TrimEnd();
-                string combined = firstHalf
-                                  + Environment.NewLine
-                                  + Blocks[blockNumber];
+                string combined = firstHalf + Environment.NewLine + Blocks[blockNumber];
                 int fsize = CalculateFont(combined);
-
                 Blocks[blockNumber - 1] = combined;
                 _blocksFontSizes[blockNumber - 1] = fsize;
-
                 Blocks.RemoveAt(blockNumber);
                 _blocksFontSizes.RemoveAt(blockNumber);
             }
-
             AddEndSymbols();
         }
 
@@ -718,11 +603,6 @@ namespace ChurchScreen
 
         #region Формирование FlowDocument
 
-        /// <summary>
-        /// Возвращает FlowDocument для блока (blockIndex).
-        /// Если previewMode = true, используем расчёт шрифта для предпросмотра (CalculatePreviewFontSize).
-        /// Иначе берём хранимый _blocksFontSizes (или пересчитываем).
-        /// </summary>
         private FlowDocument GetDocument(int blockIndex, bool previewMode)
         {
             FlowDocument doc = new FlowDocument
@@ -731,20 +611,18 @@ namespace ChurchScreen
                 IsOptimalParagraphEnabled = true,
                 IsHyphenationEnabled = true,
                 TextAlignment = TextAlignment.Center,
-                PagePadding = new Thickness(0),  // без отступов
+                PagePadding = new Thickness(0),
                 ColumnGap = 0,
                 ColumnWidth = double.PositiveInfinity
             };
 
             if (blockIndex <= 0 || blockIndex > BlocksCount)
-                return doc; // пусто
+                return doc;
 
             string block = Blocks[blockIndex - 1];
             int fontSize;
             if (previewMode)
-            {
                 fontSize = CalculatePreviewFontSize(block);
-            }
             else
             {
                 int storedSize = _blocksFontSizes[blockIndex - 1];
@@ -752,23 +630,18 @@ namespace ChurchScreen
             }
 
             var paragraph = new Paragraph { FontSize = fontSize };
-
-            // Разбиваем на строки (старый подход - убираем пустые).
             var lines = block.Split(new[] { '#', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
             foreach (string line in lines)
             {
                 paragraph.Inlines.Add(new Bold(new Run(line)));
                 paragraph.Inlines.Add(new LineBreak());
             }
-
             if (paragraph.Inlines.LastInline is LineBreak)
                 paragraph.Inlines.Remove(paragraph.Inlines.LastInline);
-
             doc.Blocks.Add(paragraph);
             return doc;
         }
 
-        /// <summary>Создаём FlowDocument с простым текстом, на случай "<ПУСТО>".</summary>
         private FlowDocument CreateDocumentWithText(string text)
         {
             var document = new FlowDocument
@@ -781,7 +654,6 @@ namespace ChurchScreen
                 ColumnGap = 0,
                 ColumnWidth = double.PositiveInfinity
             };
-
             var paragraph = new Paragraph();
             paragraph.Inlines.Add(new Run(text));
             document.Blocks.Add(paragraph);
@@ -790,16 +662,13 @@ namespace ChurchScreen
 
         #endregion
 
-        #region Вспомогательные
+        #region Вспомогательные методы
 
         private string RemoveTrailingSpaces(string line)
         {
             return line.TrimEnd(' ');
         }
 
-        /// <summary>
-        /// Удаляем "* * *" из конца последнего блока (если есть).
-        /// </summary>
         private void RemoveEndSymbols()
         {
             if (BlocksCount == 0) return;
@@ -808,17 +677,12 @@ namespace ChurchScreen
             Blocks[BlocksCount - 1] = modified;
         }
 
-        /// <summary>
-        /// Добавляем "* * *" в конец (если нет).
-        /// </summary>
         private void AddEndSymbols()
         {
             if (BlocksCount == 0) return;
             string lastBlock = Blocks[BlocksCount - 1];
             if (!Regex.IsMatch(lastBlock, @"(\*+\s*)+$"))
-            {
                 Blocks[BlocksCount - 1] = lastBlock + Environment.NewLine + "* * *";
-            }
         }
 
         #endregion
